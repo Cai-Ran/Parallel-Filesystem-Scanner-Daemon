@@ -25,3 +25,46 @@ AsyncLogger::start() {
     log_worker = std::thread(&AsyncLogger::worker_loop, this);
     return true;
 }
+
+// multi thread push
+void 
+AsyncLogger::helper(LogLevel level, const std::string& msg) {
+    LogItem item;
+    item.msg = msg;
+    item.level = level;
+    item.timestamp = std::time(nullptr);
+    item.tid = std::this_thread::get_id();
+
+    bool to_terminal = false;
+
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        while (log_queue.size() >= MAX_QUEUE_SIZE && !stop) {
+            if (level == LogLevel::Info || level == LogLevel::Debug) {
+                to_terminal = true;
+                break;
+            }     
+            //blocking wait  
+            if (level == LogLevel::Warn || level == LogLevel::Error) {
+                cv.wait(lock);
+            }
+        }
+
+        if (stop) {
+            to_terminal = true;
+        } 
+        if (!to_terminal) {
+            log_queue.push(std::move(item));
+            Metrics::measurement().logger_pending.fetch_add(1);
+        }
+    }
+
+    if (to_terminal) {
+        print_to_terminal(item);
+        return;
+    }
+    
+    cv.notify_one();
+
+}

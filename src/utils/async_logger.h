@@ -40,3 +40,38 @@ class AsyncLogger {
             time_t timestamp;
             std::thread::id tid;    //for debug
         };
+
+        size_t MAX_QUEUE_SIZE;
+        
+        std::mutex mtx;
+        std::condition_variable cv;
+        // protect
+        std::queue<LogItem> log_queue;
+        bool stop = false;
+
+        std::thread log_worker;
+        std::string log_path;
+
+        std::mutex cerr_mtx;
+
+
+    public:
+        AsyncLogger()
+            :MAX_QUEUE_SIZE(!Config::cfg().asynclogger().queue_max_size ? 1
+                            :Config::cfg().asynclogger().queue_max_size) 
+        {
+            Metrics::measurement().const_logger_pending_queue_size = MAX_QUEUE_SIZE;
+        };  
+        
+        
+        // switch between global constructor | default constructor 
+        // must be static to be call without object constructed      
+        static void switch_logger(AsyncLogger& logger) {
+            logger_ptr = &logger;
+        }
+        static AsyncLogger& logger() {
+            static AsyncLogger global_logger;
+            if (!logger_ptr) logger_ptr = &global_logger;
+            return *logger_ptr;
+        }
+        ~AsyncLogger() { shutdown();}
