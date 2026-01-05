@@ -94,3 +94,9 @@ class AsyncLogger {
         bool start();
         bool consume(LogItem& job);
         void error(const std::string& msg)  { helper(Error, msg); }
+        void info(const std::string& msg)   { helper(Info, msg); }
+        void warn(const std::string& msg)   { helper(Warn, msg); }
+        void debug(const std::string& msg)  { helper(Debug, msg); }
+        void worker_loop();
+        void write_log(std::ostream& os, const LogItem& job);
+        void shutdown();

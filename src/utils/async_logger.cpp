@@ -105,3 +105,42 @@ AsyncLogger::shutdown() {
     if (log_worker.joinable())
         log_worker.join();
 }
+
+
+// single thread worker
+void 
+AsyncLogger::worker_loop() {
+    std::ostream* out = &std::cerr;
+    std::ofstream file;
+
+    if (!log_path.empty()) {
+        file.open(log_path, std::ios::out | std::ios::app);     //write; append
+        if (file.is_open()) 
+            out = &file;
+        else
+            std::cerr << "[Error] Logger cannot open file; fallback to stderr\n";
+    }
+
+
+    LogItem job;
+    while (consume(job)) {      //always true until (empty && shutdown)
+        write_log(*out, job);
+    }
+
+}
+// single thread worker
+void 
+AsyncLogger::write_log(std::ostream& os, const LogItem& job) {
+
+    static const std::string arr[4] = {"Info", "Warn", "Debug", "Error"};
+    os << "[" << arr[job.level] << "]" << " ";
+    os << "[TID" << (std::hash<std::thread::id>{}(job.tid) % 10000) << "] ";
+    os << formater::format_time(job.timestamp) << " ";
+    os << job.msg << " \n";
+
+    os.flush();
+    if (!os.good()) {
+        std::cerr << "log flush error";
+    }
+    Metrics::measurement().logger_finished.fetch_add(1);
+}
