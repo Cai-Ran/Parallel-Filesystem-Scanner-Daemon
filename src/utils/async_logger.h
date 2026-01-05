@@ -75,3 +75,22 @@ class AsyncLogger {
             return *logger_ptr;
         }
         ~AsyncLogger() { shutdown();}
+        
+
+    private:
+        static AsyncLogger* logger_ptr;
+        //copy forbidden
+        AsyncLogger(const AsyncLogger&) = delete;
+        AsyncLogger& operator=(AsyncLogger&) = delete;
+        //move forbidden
+        AsyncLogger(AsyncLogger&&) = delete;
+        AsyncLogger& operator=(AsyncLogger&&) = delete;
+
+        void helper(LogLevel level, const std::string& msg);
+        void print_to_terminal(LogItem item);
+
+    //API
+    public:
+        bool start();
+        bool consume(LogItem& job);
+        void error(const std::string& msg)  { helper(Error, msg); }

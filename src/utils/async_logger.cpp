@@ -68,3 +68,40 @@ AsyncLogger::helper(LogLevel level, const std::string& msg) {
     cv.notify_one();
 
 }
+
+
+//single thread pop
+bool 
+AsyncLogger::consume(LogItem& job) {
+    {
+        std::unique_lock<std::mutex> lock(mtx);
+
+        while (log_queue.empty() && !stop)
+            cv.wait(lock);
+
+        if (log_queue.empty() && stop)
+            return false;
+        
+        job = std::move(log_queue.front());
+        log_queue.pop();
+        
+        Metrics::measurement().logger_pending.fetch_sub(1);
+    }
+    cv.notify_all();
+
+    return true;
+}
+
+
+void 
+AsyncLogger::shutdown() {
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        if (stop)       return;     //avoid duplicate shutdown due to destructor
+        stop = true;
+    }
+    cv.notify_all();
+
+    if (log_worker.joinable())
+        log_worker.join();
+}
