@@ -144,3 +144,19 @@ AsyncLogger::write_log(std::ostream& os, const LogItem& job) {
     }
     Metrics::measurement().logger_finished.fetch_add(1);
 }
+
+void 
+AsyncLogger::print_to_terminal(LogItem item) {
+
+    // to avoid broken / unordered output
+    std::lock_guard<std::mutex> lock(cerr_mtx);
+
+    static const std::string arr[4] = {"Info", "Warn", "Debug", "Error"};
+
+    std::cerr << "[" << arr[item.level] << "]" 
+              << "[TID" << (std::hash<std::thread::id>{}(item.tid) % 10000) << "]"
+              << " " << formater::format_time(item.timestamp) 
+              << " " << item.msg << " \n";
+
+    Metrics::measurement().logger_fallback.fetch_add(1);
+}
