@@ -100,3 +100,4 @@ class AsyncLogger {
         void worker_loop();
         void write_log(std::ostream& os, const LogItem& job);
         void shutdown();
+};
