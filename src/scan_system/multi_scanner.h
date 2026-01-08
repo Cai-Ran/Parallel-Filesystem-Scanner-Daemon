@@ -22,3 +22,5 @@ public:
     MultiScanner(Manager& manager);  
 
     void worker_job(const ScanData& job_data);   
+
+};
