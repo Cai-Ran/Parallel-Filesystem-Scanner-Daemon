@@ -108,3 +108,110 @@ Exporter::update_index() {
     AsyncLogger::logger().debug("Exporter::update_index; deleted index - size: " + std::to_string(index.index_size()));
 }
 
+
+void
+Exporter::make_summary(ScanStats& summary, const JsonContent& c) const {
+
+    switch (c.state) {
+        case (EventState::Alive):
+        {
+            summary.alive_entries++;
+            summary.total_entries++;
+
+            switch (c.node_type) {
+                case (NodeType::DIR):
+                    summary.directory_count++;
+                    break;
+                case (NodeType::FILE):
+                    summary.file_count++;
+                    summary.total_file_size += static_cast<uint64_t>(c.size);
+                    break;
+                case (NodeType::LINK):
+                    summary.symlink_count++;
+                    break;
+                default:
+                    break;
+            }
+            break;
+        }
+        case (EventState::Deleted):
+            summary.deleted_entries++;
+            summary.total_entries++;
+            break;
+        case (EventState::Error):
+            summary.error_entries++;
+            summary.total_entries++;
+            break;
+
+        case (EventState::Canceled):
+            summary.deleted_entries++;
+            break;
+        
+        default:
+            assert(false && "[Error] unknown entry state");         //do not define NDEBUG
+    }
+}
+
+
+bool 
+Exporter::export_summary(std::string& file_path) {
+
+    if (!summary_collected)
+        if (!export_result(file_path))
+            return false;
+
+
+    std::string record_time = formater::format_time(std::time(nullptr));
+    file_path = out_dir + "/scan_summary_ID_" + std::to_string(scan_id) + "_T_" + record_time + ".json";
+    std::string tmp_path = file_path + ".tmp";
+
+    std::ofstream ofs(tmp_path, std::ios::out | std::ios::trunc);
+    if (!ofs.is_open()) {       //fail to create file
+        std::cerr << "Exporter cannot open indicated file";
+        return false;
+    }
+
+
+    ofs << "{\n";
+    ofs << "    \"summary_time\": \"" << record_time << "\",\n";
+    ofs << "    \"states_summary\": {\n";
+    ofs << "        \"total_entries\": "      << scan_summary.total_entries << ", \n";
+    ofs << "        \"alive_entries\": "      << scan_summary.alive_entries << ", \n";
+    if (is_canceled)
+    ofs << "        \"not_scanned_entries\": "    << scan_summary.deleted_entries << ", \n";
+    else
+    ofs << "        \"deleted_entries\": "    << scan_summary.deleted_entries << ", \n";
+    ofs << "        \"error_entries\": "      << scan_summary.error_entries << " \n";
+    ofs << "    },\n";
+    ofs << "    \"Content_summary\": {\n";
+    ofs << "        \"directory_count\": "    << scan_summary.directory_count << ", \n";
+    ofs << "        \"file_count\": "         << scan_summary.file_count << ", \n";
+    ofs << "        \"total_file_bytes\": "    << scan_summary.total_file_size << ", \n";
+    ofs << "        \"symlink_count\": "      << scan_summary.symlink_count << " \n";
+    ofs << "    }\n";
+    ofs << "}\n";
+
+    //release mem of struct
+    scan_summary = {};
+    AsyncLogger::logger().debug("Exporter::export_summary: scan_summary struct released");
+
+    ofs.flush();
+    if (!ofs.good()) {
+        ofs.close();
+        unlink(tmp_path.c_str());   //delete
+        std::cerr << "Exporter::export_summary: flush error";
+        return false;
+    }
+
+    ofs.close();
+
+    if (rename(tmp_path.c_str(),file_path.c_str()) != 0) {
+        unlink(tmp_path.c_str());   //delete
+        std::cerr << "Exporter::export_summary: cannot replace path"; 
+        return false;
+    }
+    std::cout << "successfully dump result to " << file_path << std::endl;
+
+    summary_collected = false;
+    return true;
+}
