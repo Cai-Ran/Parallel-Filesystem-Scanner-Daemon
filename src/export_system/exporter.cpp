@@ -215,3 +215,162 @@ Exporter::export_summary(std::string& file_path) {
     summary_collected = false;
     return true;
 }
+
+
+//export result; collect summary
+bool 
+Exporter::export_result(std::string& file_path) {
+
+    convert_to_map();
+    AsyncLogger::logger().debug("Exporter::export_result - scan_collection vector data moved to map");
+
+
+    //clear 
+    scan_summary = ScanStats{};
+
+    //identify state; update index
+    check_deleted();
+    update_index();
+    
+
+    std::string record_time = formater::format_time(std::time(nullptr));
+    file_path = out_dir + "/scan_result_ID_" + std::to_string(scan_id) + "_T_" + record_time + ".json";
+    //Temporary path used for crash-safe write
+    //Only renamed to file_path after full write succeeds
+    std::string tmp_path   = file_path + ".tmp";
+
+    // Writing directly to file_path would risk leaving a corrupted file
+    // std::ios::out  : open file for writing; create the file if it does not exist.
+    // std::ios::trunc: truncate the file to zero length if it already exists.
+    std::ofstream ofs(tmp_path.c_str(), std::ios::out | std::ios::trunc);
+    if (!ofs.is_open()) {
+        std::cerr << "Exporter cannot open indicated file";
+        return false;
+    }
+
+    ofs << "{\n";
+    // use \ to escape string
+    ofs << "  \"result_time\": \"" << record_time << "\",\n";
+    ofs << "  \"entries\": [\n";
+
+    std::unordered_map<std::string, FileEvent>::iterator it = scan_result.begin();
+    //last one without , at end
+    // == first one without , at begin
+    bool is_first = true;
+
+    for (; it!=scan_result.end(); ++it) {
+
+        FileEvent& e = it->second;
+        EventState state;
+        
+
+        if (e.err.value() == 0) 
+            state = EventState::Alive;
+        else 
+            state = EventState::Error;
+
+
+        JsonContent c;
+        formater::transform_event(std::move(e), c, state);
+
+        std::string node_s = formater::format_node(c.node_type);
+        std::string state_s = formater::format_state(c.state);
+
+        if (node_s.empty() || state_s.empty()) {
+            ofs.close();
+            unlink(tmp_path.c_str());           // unlink() deletes the directory entry immediately
+            std::cerr << "node out of index\n";
+            return false;
+        }
+
+
+        //collect for summary
+        make_summary(scan_summary, c);
+
+        if (!is_first)
+            ofs << ",\n";
+        is_first = false;
+            
+        ofs << "    {\n";
+        ofs << "      \"path\": \"" << c.path << "\",\n";
+        ofs << "      \"type\": \"" << node_s << "\",\n";
+        ofs << "      \"state\": \"" << state_s << "\",\n";
+        ofs << "      \"err_msg\": \"" << c.err_msg << "\",\n";
+        ofs << "      \"size\": " << c.size << ",\n";
+        ofs << "      \"mtime\": \"" << c.time << "\" \n";
+        ofs << "    }";
+
+        ofs << "\n";
+    }
+
+    //release memory of result map
+    scan_result = std::unordered_map<std::string, FileEvent>{};
+    AsyncLogger::logger().debug("Exporter::export_result: scan_result map released");
+    
+
+    std::unordered_map<std::string, Entry>::iterator deleted_it = deleted_map.begin();
+    for (; deleted_it!=deleted_map.end(); ++deleted_it) { 
+        Entry& ent = deleted_it->second;
+
+        EventState state = (is_canceled) ? EventState::Canceled : EventState::Deleted;
+
+        JsonContent c;
+        formater::transform_entry(std::move(ent), std::string(deleted_it->first), c, state);
+
+        std::string node_s = formater::format_node(c.node_type);
+        std::string state_s = formater::format_state(c.state);
+
+        if (node_s.empty() || state_s.empty()) {
+            ofs.close();
+            unlink(tmp_path.c_str());           // unlink() deletes the directory entry immediately
+            std::cerr << "node out of index\n";
+            return false;
+        }
+        
+        //collect for summary
+        make_summary(scan_summary, c);
+        
+        if (!is_first)
+        ofs << ",\n";
+        is_first = false;
+        ofs << "    {\n";
+        ofs << "      \"path\": \"" << c.path << "\",\n";
+        ofs << "      \"type\": \"" << node_s << "\",\n";
+        ofs << "      \"state\": \"" << state_s << "\",\n";
+        ofs << "      \"err_msg\": \"" << "" << "\",\n";
+        ofs << "      \"size\": " << c.size << ",\n";
+        ofs << "      \"mtime\": \"" << c.time << "\" \n";
+        ofs << "    }";
+        ofs << "\n";
+    }
+
+    //release memory of deleted map
+    deleted_map = std::unordered_map<std::string, Entry>{};
+    AsyncLogger::logger().debug("Exporter::export_result: deleted_map map released");
+
+    ofs << "  ]\n";
+    ofs << "}\n";
+
+    ofs.flush();
+    if (!ofs.good()) {
+        ofs.close();
+        unlink(tmp_path.c_str());
+        std::cerr << "flush error";
+        return false;
+    }
+
+    ofs.close();
+
+    // Atomically replace (or create) final result file
+    // rename guarantees readers see either old file or new file, never a partial one
+    if (rename(tmp_path.c_str(), file_path.c_str()) != 0) {
+        unlink(tmp_path.c_str());
+        std::cerr << "cannot replace path"; 
+        return false;
+    }
+
+    std::cout << "successfully dump result to " << file_path << std::endl;
+
+    summary_collected = true;
+    return true;
+}
