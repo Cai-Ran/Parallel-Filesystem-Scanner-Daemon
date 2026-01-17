@@ -71,3 +71,29 @@ private:
     bool index_report(uint64_t version_number, time_t timestamp, \
                         std::string& detail_path, std::string& summary_path) const;
 
+
+public:
+    ExportManager(){};
+    ~ExportManager() {
+        AsyncLogger::logger().debug("~ExportManager destruct");
+        export_map = std::unordered_map<uint64_t, Paths>{};
+        index_map = std::unordered_map<uint64_t, Paths>{};
+        result_queue = std::queue<ExportData>{};
+    }
+
+    // manager api
+    void run();
+    void shutdown();
+    void push_queue(ExportData&& data);
+            // manager -> daemon -> httpserver
+    
+    bool set_dir(std::string&& export_dir);
+    // bool check_exported(uint64_t scan_id);
+    std::vector<bool> check_exported(const std::vector<uint64_t>& scan_ids);
+    bool get_scan_result(uint64_t scan_id, \
+                        std::string& scan_detail_path, std::string& scan_summary_path);
+    bool get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp);
+    bool get_index_result(uint64_t scan_id, \
+                    std::string& index_detail_path, std::string& index_summary_path);
+
+};
