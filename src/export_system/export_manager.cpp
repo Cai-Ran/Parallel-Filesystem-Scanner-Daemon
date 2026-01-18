@@ -61,3 +61,74 @@ ExportManager::push_queue(ExportData&& data) {
     
     cv.notify_one();
 }
+
+
+bool    //consume
+ExportManager::export_result_and_index(ExportData&& data) {
+    Paths scan_paths;
+    uint64_t id = data.scan_id;
+
+    // update index during exporting
+    if (!scan_report(std::move(data), scan_paths.detail_path, scan_paths.summary_path))
+        return false;
+    AsyncLogger::logger().debug("ExportManager::export_result_and_index::scan_report; index size: " + std::to_string(index.index_size()));
+
+    {
+        std::lock_guard<std::mutex> lock(map_mtx);
+        export_map.emplace(id, scan_paths);
+    }
+
+    time_t timestamp = std::time(nullptr);
+    bool update_index = false;
+    uint64_t latest_version_number = index.get_version_number();
+    {   
+        std::lock_guard<std::mutex> lock(map_mtx);
+        if (current_index.index_version != latest_version_number) {
+            update_index = true;
+        }
+    }
+    Paths index_paths;
+    if (update_index) {
+        if (!index_report(latest_version_number, timestamp, index_paths.detail_path, index_paths.summary_path))
+            return false;
+    } 
+    AsyncLogger::logger().debug("ExportManager::export_result_and_index::index_report; index size: " + std::to_string(index.index_size()));
+
+    {
+        std::lock_guard<std::mutex> lock(map_mtx);
+
+        if (update_index) {
+            current_index.update(latest_version_number, timestamp);
+            index_map.emplace(current_index.index_version, index_paths);
+        }
+    }
+    return true;
+}
+
+
+bool 
+ExportManager::set_dir(std::string&& dir) {
+    if (!formater::validate_outdir(dir))
+        return false;
+    this->export_dir = dir;
+    this->index_dir = std::move(dir);
+    return true;
+}   
+
+
+bool
+ExportManager::scan_report(ExportData&& data, std::string& result_path, std::string& summary_path) {
+    AsyncLogger::logger().debug("ExportManager::scan_report");
+
+    if (!formater::validate_outdir(export_dir))    return false;
+
+    Exporter exporter(data.scan_id, std::move(data.root_path), data.canceled, std::move(data.result), index);
+    if (!exporter.set_export_dir(export_dir))
+        return false;
+    if (!exporter.export_result(result_path))
+        return false;
+    if (!exporter.export_summary(summary_path))
+        return false;
+        
+    return true;
+}
