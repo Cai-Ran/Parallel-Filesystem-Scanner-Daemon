@@ -132,3 +132,54 @@ ExportManager::scan_report(ExportData&& data, std::string& result_path, std::str
         
     return true;
 }
+
+bool
+ExportManager::index_report(uint64_t version_number, time_t timestamp, \
+            std::string& detail_path, std::string& summary_path) const {
+
+    if (!formater::validate_outdir(index_dir))    return false;
+
+    IndexReporter reporter(index, version_number);
+    
+    if (!reporter.set_export_dir(index_dir))
+        return false;
+    if (!reporter.export_index_summary(summary_path, timestamp))
+        return false;
+    if (!reporter.export_index_detail(detail_path, timestamp))
+        return false;
+
+    return true;
+}
+
+// call scheduler.get_status in advance to ensure scan is finished; 
+// in order to distinguish EXPORTED from EXPORTING 
+
+// bool
+// ExportManager::check_exported(uint64_t scan_id) {
+//     std::lock_guard<std::mutex> lock(map_mtx);
+//     std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_id);
+//     if (it == export_map.end()) {
+//         AsyncLogger::logger().debug("ExportManager::check_exported - scan_id " + std::to_string(scan_id) + " not in export_map; maybe exporting, or pending -> canceled");
+//         return false;
+//     }
+//     return true;
+// }
+
+std::vector<bool>
+ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
+    std::lock_guard<std::mutex> lock(map_mtx);
+
+    std::vector<bool> results;
+    results.reserve(scan_ids.size());
+    
+    for (size_t i=0; i<scan_ids.size(); ++i) {
+        std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_ids[i]);
+        if (it == export_map.end()) {
+            // AsyncLogger::logger().debug("ExportManager::check_exported - scan_id " + std::to_string(scan_ids[i]) + " not in export_map; maybe exporting, or pending -> canceled");
+            results.push_back(0);
+        }
+        else    results.push_back(1);
+    }
+
+    return results;
+}
