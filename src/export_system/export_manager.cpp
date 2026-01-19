@@ -219,3 +219,23 @@ ExportManager::get_newest_index(uint64_t& version_number, time_t& snapshot_times
 
     return true;        //always
 }
+
+
+bool
+ExportManager::get_index_result(uint64_t version_number, \
+    std::string& index_detail_path, std::string& index_summary_path) {
+
+    {
+        std::lock_guard<std::mutex> lock(map_mtx);
+        std::unordered_map<uint64_t, Paths>::iterator it = index_map.find(version_number);
+        if (it == index_map.end()) {
+            AsyncLogger::logger().error("ExportManager::get_index_result - index_version not found in index_map");
+            return false;
+        }
+
+        index_detail_path = it->second.detail_path;
+        index_summary_path = it->second.summary_path;
+    }
+
+    return true;
+}
