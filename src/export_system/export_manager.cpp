@@ -183,3 +183,39 @@ ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
 
     return results;
 }
+
+
+bool 
+ExportManager::get_scan_result(uint64_t scan_id, \
+    std::string& scan_detail_path, std::string& scan_summary_path) {
+
+    std::lock_guard<std::mutex> lock(map_mtx);
+
+    std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_id);
+    if (it == export_map.end()) {
+        AsyncLogger::logger().info("ExportManager::get_scan_result - scan_id not in export_map; maybe exporting");
+        return false;
+    }
+
+    scan_detail_path = it->second.detail_path;
+    scan_summary_path = it->second.summary_path;
+
+    return true;
+}
+
+
+bool
+ExportManager::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
+
+    std::lock_guard<std::mutex> lock(map_mtx);
+
+    if (current_index.index_version == 0) {
+        AsyncLogger::logger().info("ExportManager::check_index - no previous scans recorded, system index empty");
+        return true;
+    }
+
+    snapshot_timestamp = current_index.latest_time;
+    version_number = current_index.index_version;
+
+    return true;        //always
+}
