@@ -125,3 +125,19 @@ public:
 
         return true;
     }
+
+
+    void shutdown() {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+            stop_flag = true;
+        }
+        cv.notify_all();
+    }
+
+    size_t jobs_in_queue() {
+        std::lock_guard<std::mutex> lock(mtx);
+        return container.size();
+    }
+
+};
