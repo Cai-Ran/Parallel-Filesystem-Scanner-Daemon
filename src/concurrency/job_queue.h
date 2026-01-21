@@ -64,3 +64,64 @@ public:
     JobQueue& operator=(JobQueue&&) = delete;           // a = std::move(b);
 
 
+    SubmitResult try_push(T&& item) {
+        {
+            std::lock_guard<std::mutex> lock(mtx);
+
+            if (stop_flag) {
+                if (metrics.submitted_failed) metrics.submitted_failed->fetch_add(1);
+                return SubmitResult::Shutdown;
+            }
+
+            if (container.size() >= QUEUE_SIZE) { 
+                if (metrics.submitted_failed) metrics.submitted_failed->fetch_add(1);
+                return SubmitResult::Full;
+            }
+
+            container.push_back(std::move(item));
+
+            if (metrics.submitted_total)    metrics.submitted_total->fetch_add(1);
+            if (metrics.queued_number)      metrics.queued_number->fetch_add(1);
+
+        }
+
+        cv.notify_one();
+
+
+        return SubmitResult::Pushed;
+    }
+
+
+    bool pop(T& item) {
+        {
+            std::unique_lock<std::mutex> lock(mtx);
+
+            while (container.empty() && !stop_flag)
+                cv.wait(lock);
+
+            if (container.empty() && stop_flag)
+                return false;
+
+            switch (policy) {
+                case (QueueType::Fifo): {
+                    item = std::move(container.front());
+                    container.pop_front();
+                    break;
+                }
+                case (QueueType::Lifo): {
+                    item = std::move(container.back());
+                    container.pop_back();
+                    break;
+                }
+                default:
+                    AsyncLogger::logger().error("JobQueue<T>::pop - unexpected policy; system error");
+                    return false;
+            }
+
+            if (metrics.queued_number)  metrics.queued_number->fetch_sub(1);
+        }
+
+        
+
+        return true;
+    }
