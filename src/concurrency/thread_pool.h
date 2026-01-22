@@ -60,3 +60,26 @@ public:
         }
         return true;
     }
+
+
+    void shutdown() {
+        job_queue.shutdown();
+        
+        for (size_t i=0; i<pool.size(); ++i) {
+            if (pool[i].joinable())
+                pool[i].join();
+        }
+
+        pool.clear();
+        job_fn = {};
+    }
+
+    typename JobQueue<T>::SubmitResult submit(T&& data) {
+        return job_queue.try_push(std::move(data));
+    }
+
+    size_t jobs_in_queue() {
+        return job_queue.jobs_in_queue();
+    }
+
+};
