@@ -53,3 +53,47 @@ Manager::start() {
 
 }
 
+
+bool
+Manager::start_new_scan(uint64_t scan_id, std::string root_path, bool& queue_full) {
+
+    std::shared_ptr<ScanContext> ctx = std::make_shared<ScanContext>();
+    queue_full = false;
+
+    ScanData data(scan_id, root_path, ctx);
+
+    {
+        std::lock_guard<std::mutex> lock(registry_mtx);
+        std::pair<std::unordered_map<uint64_t, ScanTask>::iterator, bool> res \
+            = registry.emplace(scan_id, ScanTask(std::move(root_path)));
+
+        if (!res.second) {
+            AsyncLogger::logger().error("Manager::start_new_scan - scan already in map");
+            return false;
+        }
+        res.first->second.context = ctx;
+    }
+
+    JobQueue<ScanData>::SubmitResult result = task_on_job_submit(data, true);
+    
+    if (result == JobQueue<ScanData>::SubmitResult::Shutdown) {
+        AsyncLogger::logger().error("Manager::start_new_scan - start failed, system shutdown");    
+        // unfinished_jobs sub is done on task_on_job_finish()
+        // registry cleanup is handled by task_on_job_finish()
+        return false;
+    }
+
+    if (result == JobQueue<ScanData>::SubmitResult::Full) {
+        AsyncLogger::logger().error("Manager::start_new_scan - start failed, job queue full");
+        data.context->unfinished_jobs.fetch_sub(1);
+        Metrics::measurement().scan_jobs_unfinished.fetch_sub(1);
+        dispatch_failed.store(true);
+        queue_full = true;
+        std::lock_guard<std::mutex> lock(registry_mtx);
+        registry.erase(scan_id);
+        return false;
+    }
+
+    return true;
+}
+
