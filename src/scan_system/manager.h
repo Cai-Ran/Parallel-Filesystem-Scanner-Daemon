@@ -54,4 +54,12 @@ public:
     bool cancel_scan(uint64_t scan_id);
     void shutdown();
     void wait_to_finish(std::uint64_t scan_id);  
+                        // needed for: graceful cancel/shutdown OR export
+
+    // daemon api
+    void start();
+    void set_scheduler_callback(std::function<void(uint64_t scan_id)> fn1, 
+                                std::function<void()> fn2);    
+    bool clean_up(uint64_t scan_id);
+
 
