@@ -97,3 +97,42 @@ Manager::start_new_scan(uint64_t scan_id, std::string root_path, bool& queue_ful
     return true;
 }
 
+
+void 
+Manager::wait_to_finish(std::uint64_t scan_id) {
+    
+    std::unique_lock<std::mutex> lock(registry_mtx);
+    // while (registry[scan_id].unfinished_jobs.load() != 0) 
+        // manager_cv.wait(lock);
+    manager_cv.wait(lock, 
+        [scan_id, this] {
+            std::unordered_map<uint64_t, ScanTask>::iterator it = registry.find(scan_id);
+            return ((it == registry.end()) ||
+                    (it->second.context->unfinished_jobs.load()==0));      //job is finished
+        }
+    );
+    
+}
+
+void
+Manager::set_scheduler_callback(std::function<void(uint64_t scan_id)> fn1,
+                            std::function<void()> fn2) {
+    notify_scan_finished = std::move(fn1);
+    notify_dispatch_available = std::move(fn2);
+}
+
+
+bool 
+Manager::clean_up(uint64_t scan_id) {
+    {
+        std::lock_guard<std::mutex> lock(registry_mtx);
+        std::unordered_map<uint64_t, ScanTask>::iterator it = registry.find(scan_id);
+        if (it != registry.end() && it->second.context->unfinished_jobs.load()==0) {
+            registry.erase(it);
+            return true;
+        }
+    }
+    AsyncLogger::logger().error("Manager::clean_up - invalid clean up operation for manager registry");
+    return false;
+}
+
