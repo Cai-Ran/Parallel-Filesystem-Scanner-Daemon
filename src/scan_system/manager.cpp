@@ -136,3 +136,33 @@ Manager::clean_up(uint64_t scan_id) {
     return false;
 }
 
+
+// ========================
+// SCANNER API  
+// ========================
+
+JobQueue<ScanData>::SubmitResult
+Manager::task_on_job_submit(ScanData& data, bool is_root) {
+
+    data.context->unfinished_jobs.fetch_add(1);
+    Metrics::measurement().scan_jobs_unfinished.fetch_add(1);
+
+    std::shared_ptr<ScanContext> ctx = data.context;        //local variable will be destroyed automatically
+    uint64_t id = data.scan_id;
+
+    // set priority: root_path has higher priority
+    size_t reserved = (Config::cfg().scheduler().max_concurrent_scan > 1) ? (Config::cfg().scheduler().max_concurrent_scan - 1) : 0u;
+    size_t used_slots = scan_pool.jobs_in_queue();
+    size_t free_slots = (Config::cfg().manager().scan_queue_max_size > used_slots) ? (Config::cfg().manager().scan_queue_max_size - used_slots) : 0u;
+    bool enough = free_slots > reserved;
+    if (!is_root && !enough)      return JobQueue<ScanData>::SubmitResult::Full;
+    
+    JobQueue<ScanData>::SubmitResult result = scan_pool.submit(std::move(data));
+    //scanner will rollback scan_jobs_unfinished itself
+    if (result == JobQueue<ScanData>::SubmitResult::Shutdown) {
+        task_on_job_finish(id, ctx);
+    } 
+
+    return result;
+}
+
