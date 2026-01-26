@@ -229,3 +229,38 @@ Manager::cancel_scan(uint64_t scan_id) {
     return true;
 }
 
+
+
+// =====================
+// EXPORT RESULT
+// =====================
+
+bool
+Manager::transfer_result(uint64_t scan_id, ExportManager::ExportData& data) {
+
+    data.scan_id = scan_id;
+
+    {
+        std::lock_guard<std::mutex> lock(registry_mtx);
+        std::unordered_map<uint64_t, ScanTask>::iterator it = registry.find(scan_id);
+        if (it != registry.end()) {
+            if (it->second.context->unfinished_jobs.load() != 0) {
+                AsyncLogger::logger().error("Manager::transfer_result - cannot freeze scan task: scan is not finished");
+                return false;
+            }
+            data.root_path = it->second.root_path;
+            data.canceled = it->second.context->canceled.load();
+            data.result = it->second.context->result.freeze_move();
+            AsyncLogger::logger().debug("Manager::transfer_result - entries: " + std::to_string(data.result.size()));
+            registry.erase(it);  
+            AsyncLogger::logger().debug("Manager::transfer_result registry.erased");
+        } else {
+            AsyncLogger::logger().error("Manager::transfer_result - scan_id not found in registry; cannot export");
+            return false;
+        }
+    }
+    
+
+    return true;
+}
+
