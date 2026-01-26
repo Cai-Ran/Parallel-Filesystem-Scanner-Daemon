@@ -196,3 +196,36 @@ Manager::task_on_job_finish(uint64_t scan_id, std::shared_ptr<ScanContext> ctx) 
     Metrics::measurement().scan_jobs_unfinished.fetch_sub(1);
 }
 
+
+// ================
+// STOP SCAN
+// ================
+
+void 
+Manager::shutdown() {
+
+    manager_cv.notify_all();
+
+    scan_pool.shutdown();
+
+    export_manager.shutdown();
+
+    if (export_manager_thread.joinable())
+        export_manager_thread.join();
+
+}
+
+
+bool
+Manager::cancel_scan(uint64_t scan_id) {
+    {
+        std::lock_guard<std::mutex> lock(registry_mtx);
+        std::unordered_map<uint64_t, ScanTask>::iterator it = registry.find(scan_id);
+        if (it == registry.end())   return false;
+        it->second.context->canceled.store(true);
+    }
+    manager_cv.notify_all();
+
+    return true;
+}
+
