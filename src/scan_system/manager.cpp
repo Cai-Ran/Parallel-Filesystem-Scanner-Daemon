@@ -166,3 +166,33 @@ Manager::task_on_job_submit(ScanData& data, bool is_root) {
     return result;
 }
 
+void
+Manager::task_on_job_finish(uint64_t scan_id, std::shared_ptr<ScanContext> ctx) {
+    if (ctx->unfinished_jobs.fetch_sub(1)==1) {
+        manager_cv.notify_all();
+
+        if (notify_scan_finished) {
+            notify_scan_finished(scan_id);
+            ExportManager::ExportData result;
+            if (!transfer_result(scan_id, result))
+                AsyncLogger::logger().error("Manager::task_on_job_finish - failed to transfer data to ExportManager");
+            else
+                export_manager.push_queue(std::move(result));
+                // clean_up(scan_id);           //erase in transfer_result
+        }
+        else 
+            AsyncLogger::logger().error("Manager::task_on_job_finish - must set scheduler callback before starting manager!");
+    }
+    /*
+        notify scheduler job_queue is not full, scheduler can try to push root_path
+        ideally this should happen while job_queue pop(), but it is encapsulated in thread pool
+        so notify when one job finished
+    */
+    // exchange = load + store (1.return old 2.set new)
+    if (notify_dispatch_available && dispatch_failed.exchange(false)) {
+        notify_dispatch_available();
+    }
+        
+    Metrics::measurement().scan_jobs_unfinished.fetch_sub(1);
+}
+
