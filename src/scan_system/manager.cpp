@@ -264,3 +264,40 @@ Manager::transfer_result(uint64_t scan_id, ExportManager::ExportData& data) {
     return true;
 }
 
+bool
+Manager::set_export_dir(std::string&& export_dir) {
+    return export_manager.set_dir(std::move(export_dir));
+}
+
+// bool
+// Manager::check_exported(uint64_t scan_id) {
+//     return export_manager.check_exported(scan_id);
+// }
+
+std::vector<bool> 
+Manager::check_exported(const std::vector<uint64_t>& scan_ids) {
+    return export_manager.check_exported(scan_ids);
+}
+
+bool 
+Manager::export_report(uint64_t scan_id,\
+    std::string& result_path, std::string& summary_path) 
+{
+    return export_manager.get_scan_result(scan_id, result_path, summary_path);
+}
+
+bool
+Manager::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
+    return export_manager.get_newest_index(version_number, snapshot_timestamp);
+}
+
+bool 
+Manager::index_report(uint64_t scan_id,\
+    std::string& result_path, std::string& summary_path) 
+{
+    return export_manager.get_index_result(scan_id, result_path, summary_path);
+}
+
+
+
+
