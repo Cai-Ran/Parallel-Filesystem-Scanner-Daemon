@@ -14,13 +14,13 @@
 #include <thread>
 
 /*
-// Scan life cycle??
+// Scan life cycle?
 // start_new_scan()
-//   ??task_on_job_submit()    [add to registry, submit to scan_pool]
-//   ??scanner.worker_job()    [worker threads process]
-//   ??task_on_job_finish()    [unfinished_jobs all done == 0]
-//   ??transfer_result()       [transfer results to ExportMnager, registry erase]
-//   ??export_manager.push_queue()
+//   -> task_on_job_submit()    [add to registry, submit to scan_pool]
+//   -> scanner.worker_job()    [worker threads process]
+//   -> task_on_job_finish()    [unfinished_jobs all done == 0]
+//   -> transfer_result()       [transfer results to ExportMnager, registry erase]
+//   -> export_manager.push_queue()
 */
 
 class Scheduler;
@@ -76,4 +76,5 @@ public:
     void task_on_job_finish(uint64_t scan_id, std::shared_ptr<ScanContext> ctx);
 
 };
+
 
