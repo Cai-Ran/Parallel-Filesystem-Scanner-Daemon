@@ -65,4 +65,47 @@ namespace formater {
         json.err_msg = std::move(err_msg);
     }
 
+    std::string format_node(NodeType node_type) {
+
+        std::string node = "";
+
+        size_t type_idx = static_cast<size_t>(node_type);
+
+        // static : initialized once for the entire program lifetime (not per function call)
+        static const std::string type_names[] = {"unknown", "directory", "file", "link"};    
+        size_t type_cnt = sizeof(type_names)/sizeof(type_names[0]);
+
+        if (type_idx < type_cnt) 
+            node = type_names[type_idx];
+
+        return node;
+    }
+
+    std::string format_state(EventState state) {
+
+        std::string s = "";
+
+        size_t state_idx = static_cast<size_t>(state);
+
+        static const std::string state_names[] = {"alive", "error", "deleted", "canceled"};
+        size_t state_cnt = sizeof(state_names)/sizeof(state_names[0]);
+
+        if (state_idx < state_cnt) 
+            s = state_names[state_idx];
+
+        return s;
+    }
+
+
+    std::string format_time(const time_t t) {
+        struct tm tm{};
+        localtime_r(&t, &tm);
+
+        char buf[32];
+        std::strftime(buf, sizeof(buf), "%Y%m%d-%H%M%S", &tm);
+
+        return std::string(buf);
+    }
+
+};
 
