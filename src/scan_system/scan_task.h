@@ -51,3 +51,22 @@ public:
 
 };
 
+
+// necessary context for scan worker
+struct ScanContext {
+    std::atomic<bool> canceled{false};          //Manager write; Scanner read    
+    std::atomic<int> unfinished_jobs{0};        //Scanner write
+    ScanResult result;
+};
+
+
+struct ScanTask {
+
+    std::string root_path;                      //metadata; manager write
+    std::shared_ptr<ScanContext> context;
+
+    ScanTask(std::string root): root_path(root), context(){};
+};
+
+
+
