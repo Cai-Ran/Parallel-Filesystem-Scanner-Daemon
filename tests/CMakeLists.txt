@@ -39,3 +39,23 @@ set(COMMON_COMPILE_OPTIONS
     -g
 )
 
+# -------------------------
+# Normal compile
+# -------------------------
+# JOB_QUEUE
+add_executable(test_job_queue ${JOB_QUEUE_TEST_SOURCES})
+# PRIVATE: condition only for this target
+target_include_directories(test_job_queue PRIVATE ${COMMON_INCLUDE_DIRS})
+target_compile_options(test_job_queue PRIVATE ${COMMON_COMPILE_OPTIONS})
+# enable POSIX threads
+target_link_options(test_job_queue PRIVATE -pthread)
+# link POSIX thread library
+target_link_libraries(test_job_queue PRIVATE pthread)
+
+# THREAD_POOL
+add_executable(test_thread_pool ${THREAD_POOL_TEST_SOURCES})
+target_include_directories(test_thread_pool PRIVATE ${COMMON_INCLUDE_DIRS})
+target_compile_options(test_thread_pool PRIVATE ${COMMON_COMPILE_OPTIONS})
+target_link_options(test_thread_pool PRIVATE -pthread)
+target_link_libraries(test_thread_pool PRIVATE pthread)
+
