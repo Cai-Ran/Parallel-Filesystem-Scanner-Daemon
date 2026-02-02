@@ -59,3 +59,75 @@ target_compile_options(test_thread_pool PRIVATE ${COMMON_COMPILE_OPTIONS})
 target_link_options(test_thread_pool PRIVATE -pthread)
 target_link_libraries(test_thread_pool PRIVATE pthread)
 
+# -------------------------
+# ASAN compile
+# -------------------------
+# JOB_QUEUE
+add_executable(test_job_queue_asan ${JOB_QUEUE_TEST_SOURCES})
+target_include_directories(test_job_queue_asan PRIVATE ${COMMON_INCLUDE_DIRS})
+
+# -fsanitize=address: AddressSanitizer: check memory bugs
+# -fno-omit-frame-pointer do not skip frame pointer
+
+target_compile_options(test_job_queue_asan PRIVATE
+    ${COMMON_COMPILE_OPTIONS}
+    -fsanitize=address
+    -fno-omit-frame-pointer
+)
+target_link_options(test_job_queue_asan PRIVATE
+    -pthread
+    -fsanitize=address
+    -fno-omit-frame-pointer
+)
+target_link_libraries(test_job_queue_asan PRIVATE pthread)
+
+# THREAD_POOL
+add_executable(test_thread_pool_asan ${THREAD_POOL_TEST_SOURCES})
+target_include_directories(test_thread_pool_asan PRIVATE ${COMMON_INCLUDE_DIRS})
+target_compile_options(test_thread_pool_asan PRIVATE
+    ${COMMON_COMPILE_OPTIONS}
+    -fsanitize=address
+    -fno-omit-frame-pointer
+)
+target_link_options(test_thread_pool_asan PRIVATE
+    -pthread
+    -fsanitize=address
+    -fno-omit-frame-pointer
+)
+target_link_libraries(test_thread_pool_asan PRIVATE pthread)
+
+# -------------------------
+# TSAN compile
+# -------------------------
+# JOB_QUEUE
+add_executable(test_job_queue_tsan ${JOB_QUEUE_TEST_SOURCES})
+target_include_directories(test_job_queue_tsan PRIVATE ${COMMON_INCLUDE_DIRS})
+
+# -fsanitize=thread :  ThreadSanitizer : detect data race
+
+target_compile_options(test_job_queue_tsan PRIVATE
+    ${COMMON_COMPILE_OPTIONS}
+    -fsanitize=thread
+    -fno-omit-frame-pointer
+)
+target_link_options(test_job_queue_tsan PRIVATE
+    -pthread
+    -fsanitize=thread
+    -fno-omit-frame-pointer
+)
+target_link_libraries(test_job_queue_tsan PRIVATE pthread)
+
+# THREAD_POOL
+add_executable(test_thread_pool_tsan ${THREAD_POOL_TEST_SOURCES})
+target_include_directories(test_thread_pool_tsan PRIVATE ${COMMON_INCLUDE_DIRS})
+target_compile_options(test_thread_pool_tsan PRIVATE
+    ${COMMON_COMPILE_OPTIONS}
+    -fsanitize=thread
+    -fno-omit-frame-pointer
+)
+target_link_options(test_thread_pool_tsan PRIVATE
+    -pthread
+    -fsanitize=thread
+    -fno-omit-frame-pointer
+)
+target_link_libraries(test_thread_pool_tsan PRIVATE pthread)
