@@ -49,4 +49,29 @@ private:
     
 
 
+public:
+    Scheduler(Manager& manager_)
+        :manager(manager_), 
+        MAX_CONCURRENT_SCAN(!Config::cfg().scheduler().max_concurrent_scan ? 1  
+                            :Config::cfg().scheduler().max_concurrent_scan),
+        QUEUE_MAX_SIZE(!Config::cfg().scheduler().queue_max_size ? 1 
+                       :Config::cfg().scheduler().queue_max_size) 
+        {
+            Metrics::measurement().const_scan_max_concurrent_number = MAX_CONCURRENT_SCAN;
+            Metrics::measurement().const_scan_pending_queue_size = QUEUE_MAX_SIZE;
+        }
+
+    // daemon api
+    void run();
+    SubmitScanResult submit_scan_root(std::string&& root_path, uint64_t& scan_id);
+    bool cancel(uint64_t scan_id);
+    void shutdown();
+    // RequestState get_state(uint64_t scan_id);
+    std::vector<RequestState> get_state(const std::vector<uint64_t>& scan_ids);
+
+    // manager api
+    void notify_scan_finished(uint64_t scan_id);
+    void notify_dispatch_available();
+    
+};
 
