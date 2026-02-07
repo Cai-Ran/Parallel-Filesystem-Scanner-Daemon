@@ -160,3 +160,89 @@ Scheduler::run() {
     }
 }
 
+
+bool
+Scheduler::cancel(uint64_t scan_id) {
+    bool state_no_change = false;
+    bool running_removed = false;
+
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        
+        std::unordered_map<uint64_t, RequestState>::iterator map_it = state_map.find(scan_id);
+        if (map_it == state_map.end()) {
+                AsyncLogger::logger().error(
+                "Scheduler::cancel id not in state_map, id=" + std::to_string(scan_id));
+            return false;
+        }
+        if (map_it->second == RequestState::DONE || map_it->second == RequestState::DROPPED 
+            || map_it->second == RequestState::FAILED || map_it->second == RequestState::CANCELED)
+            state_no_change = true;
+
+        if (map_it->second == RequestState::RUNNING || map_it->second == RequestState::DISPATCHING) {
+            map_it->second = RequestState::CANCELED;
+            running_removed = true;
+        }
+        if (map_it->second == RequestState::PENDING) {       //drop while run() pop
+            map_it->second = RequestState::DROPPED;
+            pending_scans--;
+        }
+    }
+    
+
+    if (!state_no_change) {
+        if (running_removed) {    // RUNNING -> CANCELED || DISPATCHING -> CANCELED
+            manager.cancel_scan(scan_id);    //truely RUNNING in manager
+            // if (canceled) manager.wait_to_finish(scan_id);       //block httpserver
+        }
+    }
+    else {
+        return false;          //DONE / DROPPED / FAILED cannot be canceled
+    }
+
+    return true;
+}
+
+void 
+Scheduler::shutdown() {
+     
+    std::vector<uint64_t> maybe_running_container;
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        stop_flag = true;
+
+        std::unordered_map<uint64_t, RequestState>::iterator it = state_map.begin();
+        for (; it!=state_map.end(); ++it) {
+            if (   it->second == RequestState::RUNNING 
+                || it->second == RequestState::DISPATCHING 
+                || it->second == RequestState::CANCELED) 
+            {
+                maybe_running_container.push_back(it->first);
+                it->second = RequestState::CANCELED;
+            } 
+        }
+
+        std::deque<PendingRoot>::iterator que_it = pending_queue.begin();
+        for (; que_it != pending_queue.end(); ++que_it) {
+            if (state_map[que_it->scan_id] == RequestState::PENDING)
+                state_map[que_it->scan_id] = RequestState::DROPPED;
+        }
+        pending_queue.clear();
+        Metrics::measurement().scan_pending.store(0);
+        pending_scans = 0;
+    }
+    
+
+    for (size_t i=0; i<maybe_running_container.size(); ++i) {
+        manager.cancel_scan(maybe_running_container[i]);
+    }
+    
+    for (size_t i=0; i<maybe_running_container.size(); ++i) {
+        manager.wait_to_finish(maybe_running_container[i]);
+    }
+
+    manager.shutdown();
+
+    cv.notify_all();
+}
+
