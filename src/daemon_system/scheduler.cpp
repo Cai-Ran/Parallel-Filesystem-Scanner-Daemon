@@ -246,3 +246,87 @@ Scheduler::shutdown() {
     cv.notify_all();
 }
 
+
+// =============
+// MANAGER API
+// =============
+void 
+Scheduler::notify_scan_finished(uint64_t scan_id) {
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        
+        std::unordered_map<uint64_t, RequestState>::iterator it = state_map.find(scan_id);
+        if (it == state_map.end())
+            AsyncLogger::logger().error("scan id not in state map");
+        else {
+
+            if (it->second == RequestState::RUNNING || it->second == RequestState::CANCELED) {
+                running_scans--;
+                Metrics::measurement().scan_running.fetch_sub(1);
+            }
+        
+            if (it->second == RequestState::RUNNING || it->second == RequestState::DISPATCHING)     //finished before changing to RUNNING
+            {    
+                it->second = RequestState::DONE;
+            }
+        }
+    }
+    
+    cv.notify_all();
+}
+
+
+void
+Scheduler::notify_dispatch_available() {
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        manager_queue_full = false;
+    }
+    
+    cv.notify_all();
+}
+
+
+
+// =============
+// DAEMON API
+// =============
+
+// RequestState
+// Scheduler::get_state(uint64_t scan_id) {
+//     std::lock_guard<std::mutex> lock(mtx);
+//     std::unordered_map<uint64_t, RequestState>::iterator it = state_map.find(scan_id);
+//     if (it == state_map.end()) {
+//         AsyncLogger::logger().error("Scheduler::get_state - scan_id " + std::to_string(scan_id) + " not found in state map");
+//         return RequestState::FAILED;
+//     }
+//     if (it-> second == RequestState::DISPATCHING)
+//         return RequestState::PENDING;
+
+//     return it->second;
+// }
+
+std::vector<RequestState> 
+Scheduler::get_state(const std::vector<uint64_t>& scan_ids) {
+    std::lock_guard<std::mutex> lock(mtx);
+
+    std::vector<RequestState> states;
+    states.reserve(scan_ids.size());
+
+    for (size_t i=0; i<scan_ids.size(); ++i) {
+        std::unordered_map<uint64_t, RequestState>::iterator it = state_map.find(scan_ids[i]);
+        if (it == state_map.end()) {
+            AsyncLogger::logger().error("Scheduler::get_states - scan_id " + std::to_string(scan_ids[i]) + " not found in state map");
+            states.push_back(RequestState::FAILED);
+        }
+
+        else if (it-> second == RequestState::DISPATCHING)
+            states.push_back(RequestState::PENDING);
+
+        else
+            states.push_back(it->second);
+    }
+
+    return states;
+}
+
