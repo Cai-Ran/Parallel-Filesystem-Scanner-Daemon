@@ -14,3 +14,12 @@ enum class RequestState : uint8_t {
                             // Scheduler::run() holds lock gap
 };
 
+
+// RUNNING      -> DONE
+// RUNNING      -> CANCELED
+// PENDING      -> DROPPED
+// PENDING      -> DISPATCHING  (run() dequeues, calls manager outside lock)
+// DISPATCHING  -> RUNNING      (manager accepted)
+// DISPATCHING  -> CANCELED     (user canceled during dispatch)
+// DISPATCHING  -> FAILED       (manager internal error)
+

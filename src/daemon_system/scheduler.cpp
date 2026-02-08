@@ -330,3 +330,24 @@ Scheduler::get_state(const std::vector<uint64_t>& scan_ids) {
     return states;
 }
 
+
+// ==============
+// UTILS
+// ==============
+
+uint64_t
+Scheduler::gen_scan_id() {
+    return next_scan_id.fetch_add(1);
+}
+
+std::string
+Scheduler::normalize_path(const std::string& path) {
+    char absolute_path[PATH_MAX];
+    if (realpath(path.c_str(), absolute_path) == 0) {
+        AsyncLogger::logger().error(std::strerror(errno));       
+        return "";
+    }
+    return std::string(absolute_path);
+}
+
+
