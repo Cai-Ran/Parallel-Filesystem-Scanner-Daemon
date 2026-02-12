@@ -430,3 +430,226 @@ HttpServer::router(int fd, const RequestContent& request) {
     return 404;
 }
 
+// =================
+// Response Handlers
+// =================
+int    //GET /
+HttpServer::response_homepage(int fd) {
+    std::string body;
+    std::string path = frontend_path;
+
+    if (!serve_page(path, body)) {
+        return 404;
+    }
+    
+    write_response(fd, 200, "text/html", body);
+    return 0;
+}
+
+int     //GET /download_time
+HttpServer::response_download_time(int fd) {
+    int sec = Config::cfg().daemon().user_download_sec;
+    std::string body = "{\"user_download_sec\":" + std::to_string(sec) + "}";
+
+    write_response(fd, 200, "application/json", body);
+
+    return 0;
+}
+
+
+int //POST /shutdown
+HttpServer::response_shutdown() {
+
+    daemon.shutdown();
+    
+
+    // DO NOT SHUTDOWN POOL HERE; cause join in worker thread
+    return 200;
+}
+
+
+int //POST /scan?root=""
+HttpServer::response_scan(int fd, const std::string& queries) {
+
+    std::string root_path = "";
+    if (!get_query_value(queries, "root", root_path)) {
+        std::string body = "{\"error\": \"Empty scan path\" }";
+        write_response(fd, 400, "application/json", body);
+        return 0;
+    }
+
+    uint64_t id = 0;
+    SubmitScanResult result = daemon.submit_scan(std::move(root_path), id);
+    std::string body = "";
+    switch (result) {
+        case SubmitScanResult::Ok:
+            body = "{\"id\":" + std::to_string(id) + "}";
+            write_response(fd, 200, "application/json", body);
+            return 0;
+        case SubmitScanResult::Invalid:
+            body = "{\"error\": \"No such file or directory\" }";
+            write_response(fd, 400, "application/json", body);
+            return 0;
+        case SubmitScanResult::QueueFull:
+            body = "{\"error\": \"Server busy, please submit later\" }";
+            write_response(fd, 429, "application/json", body);
+            return 0;
+        case SubmitScanResult::Shutdown:
+            return 503;
+        case SubmitScanResult::InternalError:
+            return 500;
+        
+        default:
+            AsyncLogger::logger().error("invalid SubmitScanResult");
+        
+    }
+
+    return 0;
+}
+
+int //POST /cancel?id=x
+HttpServer::response_cancel(int fd, const std::string& queries) {
+    (void)fd;
+    
+    std::string id_str = "";
+    if (!get_query_value(queries, "id", id_str))        return 400;
+    uint64_t id = 0;
+    if (!parse_id(id_str, id))                          return 400;
+
+    if (!daemon.cancel_scan(id))                        return 409;
+
+    return 200;
+}
+
+
+
+/*
+polling rules:
+
+- scheduler state changing          PENDING, RUNNING    -> poll scheduler.get_state(s)
+- export_manager state fix          UNAVAILABLE
+:
+- scheduler state final             CANCELD, DONE       -> poll export_manager.check_exporting(s)
+- export_manager state changing     EXPORTING, EXPORTED
+
+death states:                                           -> no polling
+- scheduler                         FAILED, DROPPED   
+- export_manager                    EXPORTED
+
+*/
+
+// int //GET /state?id=x
+// HttpServer::response_state(int fd, const std::string& queries) {
+
+//     std::string id_str = "";
+//     if (!get_query_value(queries, "id", id_str))         return 400;
+//     uint64_t id = 0;
+//     if (!parse_id(id_str, id))                           return 400;
+
+//     RequestState state = daemon.get_state(id);
+                                                                                            
+//     static std::string state_arr[7] = {                                 //DISPATCHING is PENDING
+//         "PENDING", "DROPPED", "RUNNING", "CANCELED", "DONE", "FAILED", "PENDING"
+//     };
+
+
+//     std::string body = "{\"id\":" + std::to_string(id) + 
+//                 ", \"state\":\"" + state_arr[static_cast<size_t>(state)] +
+//                 "\"}";
+
+//     write_response(fd, 200, "application/json", body);
+
+//     return 0;
+// }
+
+int //GET /state?id=1,2,3
+HttpServer::response_state(int fd, const std::string& queries) {
+    std::string ids_str = "";
+    if (!get_query_value(queries, "id", ids_str))         return 400;
+
+    std::vector<uint64_t> ids;
+    std::stringstream ss(ids_str);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        uint64_t id = 0;
+        if (parse_id(token, id)) ids.push_back(id);
+    }
+
+    static std::string state_arr[7] = {
+        "PENDING", "DROPPED", "RUNNING", "CANCELED", "DONE", "FAILED", "PENDING"
+    };
+
+    std::vector<RequestState> states = daemon.get_state(ids);
+
+    std::string body = "[";
+    for (size_t i = 0; i < states.size(); ++i) {
+        uint64_t id = ids[i];
+        RequestState state = states[i];
+
+        if (i!=0) body += ",";
+        body += "{\"id\":" + std::to_string(id) +
+                ",\"state\":\"" + state_arr[static_cast<size_t>(state)] +
+                "\"}";
+    }
+    body += "]";
+
+    write_response(fd, 200, "application/json", body);
+    return 0;
+}
+
+
+// int //GET /exporting?id=x
+// HttpServer::response_exporting(int fd, const std::string& queries) {
+//     std::string id_str = "";
+//     if (!get_query_value(queries, "id", id_str))         return 400;
+//     uint64_t id = 0;
+//     if (!parse_id(id_str, id))                           return 400;
+
+//     static std::string export_arr[3] = {"Unavailable", "Exporting", "Exported"};
+
+    // ExportState export_state;
+    // export_state = (!daemon.check_exported(id)) ? ExportState::Exporting : ExportState::Exported;
+
+    // std::string body = "{\"id\":" + std::to_string(id) + 
+    //         ", \"export_state\":\"" + export_arr[static_cast<size_t>(export_state)] +
+    //         "\"}";
+
+    // write_response(fd, 200, "application/json", body);
+
+//     return 0;
+// }
+
+
+int //GET /exporting?id=1,2,3
+HttpServer::response_exporting(int fd, const std::string& queries) {
+    std::string ids_str = "";
+    if (!get_query_value(queries, "id", ids_str))         return 400;
+
+    std::vector<uint64_t> ids;
+    std::stringstream ss(ids_str);
+    std::string token;
+    while (std::getline(ss, token, ',')) {
+        uint64_t id = 0;
+        if (parse_id(token, id)) ids.push_back(id);
+    }
+    static std::string export_arr[3] = {"Unavailable", "Exporting", "Exported"};
+
+    std::vector<bool> results = daemon.check_exported(ids);
+
+    std::string body = "[";
+    for (size_t i = 0; i < results.size(); ++i) {
+        uint64_t id = ids[i];
+        
+        ExportState export_state = (!results[i]) ? ExportState::Exporting : ExportState::Exported;
+
+        if (i!=0) body += ",";
+        body += "{\"id\":" + std::to_string(id) +
+                ",\"export_state\":\"" + export_arr[static_cast<size_t>(export_state)] +
+                "\"}";
+    }
+    body += "]";
+
+    write_response(fd, 200, "application/json", body);
+    return 0;
+}
+
