@@ -653,3 +653,173 @@ HttpServer::response_exporting(int fd, const std::string& queries) {
     return 0;
 }
 
+
+
+int //GET /export_summary?id=x""
+HttpServer::response_export_summary(int fd, const std::string& queries) {
+    std::string id_str = "";
+    if (!get_query_value(queries, "id", id_str))        return 400;
+    uint64_t id = 0;
+    if (!parse_id(id_str, id))                          return 400;
+
+    if (!daemon.check_exported(std::vector<uint64_t>{id})[0])        return 500;
+
+    std::string dummy, summary_path;
+    if (!daemon.export_result(id, dummy, summary_path))              return 500;
+
+    std::string html_buf;
+    if (!assemble_html(id, "export_detail", summary_path, html_buf)) return 500;
+
+    write_response(fd, 200, "text/html", html_buf);
+    return 0;
+}
+
+
+int //GET /export_detail?id=x
+HttpServer::response_export_detail(int fd, const std::string& queries) {
+    std::string id_str = "";
+    if (!get_query_value(queries, "id", id_str))                    return 400;
+    uint64_t id = 0;
+    if (!parse_id(id_str, id))                                      return 400;
+
+    if (!daemon.check_exported(std::vector<uint64_t>{id})[0])       return 500;
+
+    std::string detail_path, dummy;
+    if (!daemon.export_result(id, detail_path, dummy))              return 500;
+
+    // std::string body;
+    // if (!serve_page(detail_path, body))                             return 404;
+
+    std::string body = "{\"file_path\":\"" + detail_path + "\"}";
+
+    write_response(fd, 200, "application/json", body);
+    return 0;
+}
+
+
+int //POST /index
+HttpServer::response_index(int fd) {
+
+    uint64_t version = 0;
+    time_t timestamp = 0;
+    std::string body;
+
+    daemon.get_newest_index(version, timestamp);
+
+    if (version == 0) {
+        return 204;
+    } else {
+        body = "{\"state\": \"ok\"" 
+                ",\"version\":" + std::to_string(version) + 
+                ",\"timestamp\":" + std::to_string(timestamp) +
+                "}";
+    }
+    write_response(fd, 200, "application/json", body);
+
+    return 0;
+}
+
+
+int //GET /index_summary?id=x
+HttpServer::response_index_summary(int fd, const std::string& queries) {
+    std::string id_str = "";
+    if (!get_query_value(queries, "id", id_str))                    return 400;
+    uint64_t id = 0;
+    if (!parse_id(id_str, id))                                      return 400;
+
+    std::string dummy1, summary_path;
+    if (!daemon.index_report(id, dummy1, summary_path))             return 500;
+
+    std::string html_buf;
+    if (!assemble_html(id, "index_detail", summary_path, html_buf)) return 500;
+
+    write_response(fd, 200, "text/html", html_buf);
+
+    return 0;
+};
+
+
+int //GET /index_detail?id=x
+HttpServer::response_index_detail(int fd, const std::string& queries) {
+    std::string id_str = "";
+    if (!get_query_value(queries, "id", id_str))        return 400;
+    uint64_t id = 0;
+    if (!parse_id(id_str, id))                          return 400;
+
+    std::string detail_path, dummy2;
+    if (!daemon.index_report(id, detail_path, dummy2))  return 500;
+
+    // std::string body;
+    // if (!serve_page(detail_path, body))                 return 404;
+
+    std::string body = "{\"file_path\":\"" + detail_path + "\"}";
+    write_response(fd, 200, "application/json", body);
+
+    return 0;
+}
+
+
+int     //GET   /metrics
+HttpServer::response_metrics(int fd) {
+    Metrics& metrics = Metrics::measurement();
+
+    std::string body =
+        "{\"const_scan_max_concurrent_number\":" + std::to_string(metrics.const_scan_max_concurrent_number) +
+        ",\"const_scan_pending_queue_size\":" + std::to_string(metrics.const_scan_pending_queue_size) +
+        ",\"scan_running\":" + std::to_string(metrics.scan_running.load()) +
+        ",\"scan_pending\":" + std::to_string(metrics.scan_pending.load()) +
+        ",\"const_scan_job_pool_num_threads\":" + std::to_string(metrics.const_scan_job_pool_num_threads) +
+        ",\"const_scan_job_queue_size\":" + std::to_string(metrics.const_scan_job_queue_size) +
+        ",\"const_request_pool_num_threads\":" + std::to_string(metrics.const_request_pool_num_threads) +
+        ",\"const_request_queue_size\":" + std::to_string(metrics.const_request_queue_size) +
+        ",\"const_logger_pending_queue_size\":" + std::to_string(metrics.const_logger_pending_queue_size) +
+        ",\"scan_jobs_unfinished\":" + std::to_string(metrics.scan_jobs_unfinished.load()) +
+        ",\"scan_jobs_submitted\":" + std::to_string(metrics.scan_jobs_submitted.load()) +
+        ",\"scan_jobs_enqueue_reject\":" + std::to_string(metrics.scan_jobs_enqueue_reject.load()) +
+        ",\"scan_jobs_queued\":" + std::to_string(metrics.scan_jobs_queued.load()) +
+        ",\"request_jobs_submitted\":" + std::to_string(metrics.request_jobs_submitted.load()) +
+        ",\"request_jobs_failed\":" + std::to_string(metrics.request_jobs_failed.load()) +
+        ",\"request_jobs_queued\":" + std::to_string(metrics.request_jobs_queued.load()) +
+        ",\"export_pending\":" + std::to_string(metrics.export_pending.load()) +
+        ",\"export_running\":" + std::to_string(metrics.export_running.load()) +
+        ",\"export_finished\":" + std::to_string(metrics.export_finished.load()) +
+        ",\"logger_pending\":" + std::to_string(metrics.logger_pending.load()) +
+        ",\"logger_finished\":" + std::to_string(metrics.logger_finished.load()) +
+        ",\"logger_fallback\":" + std::to_string(metrics.logger_fallback.load()) +
+        ",\"system_start_time\":" + std::to_string(system_start_time) +
+        "}";
+
+    write_response(fd, 200, "application/json", body);
+
+    return 0;
+}
+
+
+int     // POST /export_dir?dir=""
+HttpServer::response_export_dir(int fd, const std::string& queries) {
+
+    std::string export_dir = "";
+    bool success = true;
+    std::string body;
+    if (!get_query_value(queries, "dir", export_dir)) {
+        body = "{\"error\": \"Empty export dir\" }";
+        success = false;
+    }
+    else if (!daemon.set_export_dir(std::move(export_dir))) {
+        body = "{\"error\": \"Invalid export dir\" }";
+        success = false;
+    }
+    if (!success) {
+        write_response(fd, 400, "application/json", body);
+        return 0;
+    }
+
+    else {
+        write_response(fd, 200, "application/json", "");
+        export_dir_set.store(true);
+    }
+
+    
+    return 0;
+}
+
