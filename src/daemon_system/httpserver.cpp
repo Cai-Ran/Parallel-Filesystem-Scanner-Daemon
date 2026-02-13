@@ -70,7 +70,7 @@ HttpServer::setup_server_socket() {
     sockaddr_in server_addr{};
     server_addr.sin_family = AF_INET;           //IPv4 family
     server_addr.sin_addr.s_addr = INADDR_ANY;   //bind (0.0.0.0)
-    server_addr.sin_port = htons(server_port);  //convert port to network byte order??ig endian??
+    server_addr.sin_port = htons(server_port);  //convert port to network byte order(big endian)
 
     // sockaddr is the generic socket address type (socket.h)
     // sockaddr_in is the IPv4-specific version. cast to sockaddr type
@@ -822,4 +822,117 @@ HttpServer::response_export_dir(int fd, const std::string& queries) {
     
     return 0;
 }
+
+
+
+// ============
+// Utils
+// ============
+
+bool 
+HttpServer::get_query_value(const std::string& queries, 
+    const std::string& key, std::string& value) {
+
+    std::string pattern = key + '=';
+
+    size_t key_start = queries.find(pattern);
+    if (key_start == std::string::npos)   return false;
+
+    size_t key_end = key_start + pattern.size();
+    size_t val_end = queries.find('&', key_end);    //from key_end
+    
+    std::string url = (val_end == std::string::npos) ? \
+    queries.substr(key_end) : queries.substr(key_end, val_end-key_end);
+    
+    if (url.empty())      return false;
+
+    // URL decode: find hex -> convert hex to decimal (ie. ASCII)
+    // rule: start with % + hex (2 digit)
+    std::string decoded;
+
+    for (size_t i=0; i < url.size();) {
+        if (url[i] == '%' && i+2 < url.size()) {
+            int high_bits = char_to_num(url[i+1]);
+            int low_bits  = char_to_num(url[i+2]);
+
+            if (high_bits != -1 && low_bits != -1) {
+                int hex = high_bits << 4 | low_bits;
+                decoded.push_back(static_cast<char>(hex));
+                i += 3;
+                continue;
+            }
+        }
+        if (url[i] == '+') url[i] = ' ';
+
+        decoded.push_back(url[i]);
+        i++;
+    }
+    value = decoded;
+  
+    return true;
+}
+
+int
+HttpServer::char_to_num(char c) {
+    int num = -1;
+
+    if      (c>='0' && c<='9')   num = c-'0';
+    else if (c>='a' && c<='f')   num = c-'a' +10;
+    else if (c>='A' && c<='F')   num = c-'A' +10;
+
+    return num;
+}
+
+bool
+HttpServer::parse_id(const std::string& id_str, uint64_t& id) {
+    long long l = atoll(id_str.c_str());
+    if (l <= 0) return false;
+
+    id = static_cast<uint64_t>(l);
+    return true;
+}
+
+bool
+HttpServer::serve_page(std::string file_path, std::string& body_buf) {
+    //// ios::in - open for reading / ios::binary - disables newline 
+    std::ifstream in_file(file_path, std::ios::in | std::ios::binary);
+    if (!in_file) {
+        AsyncLogger::logger().error("cannot open page file");
+        return false;
+    }
+
+    std::ostringstream oss;
+    oss << in_file.rdbuf();      //reads the entire file stream buffer into oss
+    body_buf = oss.str();
+
+    return true;
+}
+
+//frontend <a href="/detail?id=123">View Detail</a>
+//GET /export_detail?id=xx
+//GET /index_detail?id=xx
+bool
+HttpServer::assemble_html(uint64_t id, const std::string& detail_route,\
+    const std::string& summary_json, std::string& html_buf) {
+    std::string json_buf;
+    if (!serve_page(summary_json, json_buf))
+        return false;
+
+    html_buf = 
+        "<!doctype html>"
+        "<html>"
+        "<head>"
+            "<meta charset=\"utf-8\">"
+            "<title>Summary</title>"
+        "</head>"
+        "<body>"
+            "<a href=\"/" + detail_route + "?id=" + std::to_string(id) + "\">View Detail</a>"
+            "<h1>Summary</h1>"
+            "<pre>" + json_buf + "</pre>"
+        "</body>"
+        "</html>";
+
+    return true;
+}
+
 
