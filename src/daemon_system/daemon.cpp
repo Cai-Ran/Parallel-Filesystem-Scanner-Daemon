@@ -38,3 +38,58 @@ Daemon::terminate_handler(int sig_num) {
     shutdown_flag.store(true);
 };
 
+
+void 
+Daemon::run() {
+    shutdown_flag.store(false);
+
+    std::signal(SIGINT, &terminate_handler);        //register SIG handler
+    std::signal(SIGTERM, &terminate_handler);       //register SIG handler
+
+    manager.start();
+    std::thread t_scheduler(&Scheduler::run, &scheduler);
+    std::thread t_httpserver(&HttpServer::run, &httpserver);
+
+
+    while (!shutdown_flag.load()) {
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    
+    //system shutting down
+    httpserver.drain();
+
+    scheduler.shutdown();   //calls manager.shutdown();
+    
+    int drain_time = 1000;
+    bool server_stopped = false;
+
+    while (drain_time--) {
+        if (
+            Metrics::measurement().scan_running.load() == 0         &&
+            Metrics::measurement().scan_pending.load() == 0         &&
+            Metrics::measurement().scan_jobs_unfinished.load() == 0 &&
+            Metrics::measurement().export_pending.load() == 0       &&
+            Metrics::measurement().export_running.load() == 0
+        )
+        {
+            
+            std::this_thread::sleep_for(std::chrono::seconds(USER_DOWNLOAD_SEC));
+            std::cerr << "==================================\n"
+                            "httpserver is closing...\n"
+                         "==================================\n";
+            httpserver.shutdown();
+            server_stopped = true;
+            break;
+        }
+
+        std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+    }
+    if (!server_stopped) {
+        httpserver.shutdown();
+        AsyncLogger::logger().error("metrics value not drained; stop httpserver unexpectedly.");
+    }
+
+    if (t_scheduler.joinable())     t_scheduler.join();
+    if (t_httpserver.joinable())    t_httpserver.join();
+}
+
