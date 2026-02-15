@@ -43,12 +43,4 @@ public:
     bool index_report(uint64_t scan_id, \
         std::string& detail_path, std::string& summary_path);
 
-    #ifdef UNIT_TEST
-    static void test_set_shutdown_flag(bool v);
-    static bool test_shutdown_flag();
-    static void test_invoke_terminate_handler(int sig_num);
-    #endif
-
-
 };
-
