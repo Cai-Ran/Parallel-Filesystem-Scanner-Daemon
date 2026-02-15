@@ -93,3 +93,58 @@ Daemon::run() {
     if (t_httpserver.joinable())    t_httpserver.join();
 }
 
+
+
+SubmitScanResult
+Daemon::submit_scan(std::string&& root_path, uint64_t& scan_id) {
+    scan_id = 0;    //invalid id; to avoid missed initialization
+    return scheduler.submit_scan_root(std::move(root_path), scan_id);
+}
+
+std::vector<RequestState>
+Daemon::get_state(const std::vector<uint64_t>& scan_ids) {
+    return scheduler.get_state(scan_ids);
+}
+
+std::vector<bool> 
+Daemon::check_exported(const std::vector<uint64_t>& scan_ids) {
+    return manager.check_exported(scan_ids);
+}
+
+bool
+Daemon::set_export_dir(std::string&& export_dir) {
+    return manager.set_export_dir(std::move(export_dir));
+}
+
+bool 
+Daemon::export_result(uint64_t scan_id, \
+    std::string& result_path, std::string& summary_path) 
+{
+    return manager.export_report(scan_id, result_path, summary_path);
+}
+
+bool
+Daemon::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
+    return manager.get_newest_index(version_number, snapshot_timestamp);
+}
+
+bool 
+Daemon::index_report(uint64_t scan_id, \
+    std::string& detail_path, std::string& summary_path) 
+{
+    return manager.index_report(scan_id, detail_path, summary_path);
+}
+
+bool 
+Daemon::cancel_scan(uint64_t scan_id) {
+    bool canceled = scheduler.cancel(scan_id);
+    // if (canceled)   manager.clean_up(scan_id);       //only erase after export
+    return canceled;
+}
+
+void
+Daemon::shutdown() {
+    shutdown_flag.store(true);
+}
+
+
