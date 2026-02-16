@@ -42,4 +42,43 @@ struct Metrics {
     std::atomic<uint64_t> logger_fallback;            //add
 
 
+    void reset() {
+
+        const_scan_max_concurrent_number = 0;
+        const_scan_pending_queue_size = 0;
+        scan_running.store(0);
+        scan_pending.store(0);
+
+        const_scan_job_pool_num_threads = 0;
+        const_scan_job_queue_size = 0;
+        scan_jobs_unfinished.store(0);
+        scan_jobs_submitted.store(0);
+        scan_jobs_enqueue_reject.store(0);     
+        scan_jobs_queued.store(0);        
+            
+        const_request_pool_num_threads = 0;
+        const_request_queue_size = 0;
+        request_jobs_submitted.store(0);     
+        request_jobs_failed.store(0);    
+        request_jobs_queued.store(0);       
+
+        // export_manager
+        export_pending.store(0);
+        export_running.store(0);
+        export_finished.store(0);
+
+        // async_logger
+        const_logger_pending_queue_size = 0;
+        logger_pending.store(0);
+        logger_finished.store(0);
+        logger_fallback.store(0);
+
+    };
+
+
+    static Metrics& measurement() {
+        static Metrics metric;
+        return metric;
+    }
+};
 
