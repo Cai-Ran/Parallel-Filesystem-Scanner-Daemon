@@ -118,4 +118,133 @@ class HttpClient:
     # public
 
     def get(self, path: str) -> Tuple[int, str]:
+        return self._request("GET", path)
+    
+    def post(self, path: str) -> Tuple[int, str]:
+        return self._request("POST", path)
+    
+    # custom url of daemon
+
+    def get_metrics(self) -> Dict:
+        (status, body) = self.get("/metrics")
+        if (status != 200):
+            return {}
+        obj = parse_json(body)
+        return obj if (obj) else {}
+    
+    def get_state(self, scan_id: int) -> str:
+        (status, body) = self.get(f"/state?id={scan_id}")
+        if (status != 200):
+            return ""
+        state_map = self._parse_state_map(body)
+        return state_map.get(scan_id, "")
+
+    def post_scan(self, root: str) -> Tuple[int, int, float]:
+        encoded = parse.quote(str(root), safe="")
+        path = "/scan?root=" + encoded
+        t = now_ts()
+        (status, body) = self.post(path)
+        if (status != 200):     # invalid scan_id = 0
+            return (status, 0, t)
+        else:
+            scan_id = parse_scan_id(body)
+        return status, scan_id, t
+
+    def post_cancel(self, scan_id: int) -> int:
+        (status, _) = self.post(f"/cancel?id={scan_id}")
+        t = now_ts()
+        return status, t
+
+    def post_export_dir(self, export_dir: str) -> int:
+        encoded = parse.quote(str(export_dir), safe="")
+        (status, _) = self.post(f"/export_dir?dir={encoded}")
+        return status
+    
+    # wait metrics reset (happens in system reset)
+    def wait_metrics_reset(self, wait_timeout: float, poll_interval_sec: float) -> bool:
+        deadline = now_ts() + wait_timeout
+        stable_hits = 0     # if detect stable 3 times -> determine stable
+
+        while (now_ts() < deadline):
+
+            metrics = self.get_metrics()
+            if (not metrics):
+                time.sleep(poll_interval_sec)
+                continue
+
+            scan_running = as_int(metrics.get("scan_running", 0), 0)
+            scan_pending = as_int(metrics.get("scan_pending", 0), 0)
+            scan_jobs_unfinished = as_int(metrics.get("scan_jobs_unfinished", 0), 0)
+            scan_jobs_queued = as_int(metrics.get("scan_jobs_queued", 0), 0)
+            request_jobs_queued = as_int(metrics.get("request_jobs_queued", 0), 0)
+            export_pending = as_int(metrics.get("export_pending", 0), 0)
+            export_running = as_int(metrics.get("export_running", 0), 0)
+
+            # check metrics is reset 
+            idle = (
+                scan_running == 0
+                and scan_pending == 0
+                and scan_jobs_unfinished == 0
+                and scan_jobs_queued == 0
+                and request_jobs_queued == 0
+                and export_pending == 0
+                and export_running == 0
+            )
+
+            if idle:
+                stable_hits += 1
+                if stable_hits >= 3:
+                    return True
+            else:
+                stable_hits = 0
+
+            time.sleep(poll_interval_sec)
+
+        return False
+    
+    # wait server respond homepage
+    def wait_server_ready(self, wait_timeout: float) -> bool:
+        deadline = now_ts() + wait_timeout
+
+        while (now_ts() < deadline):
+
+            (status, _) = self.get("/")
+            if status == 200:
+                return True
+            
+            time.sleep(0.2)
+
+        return False
+    
+    # polling get /state to compute scan_cycle_time
+    # GET /state?id=1,2,3
+    def wait_final_states(self, scan_ids: List[int], poll_interval_sec: float, wait_timeout: float):
+        ids_set = set(scan_ids)
+        states = {}
+        scan_cycle_end_times = {}
+        deadline = now_ts() + wait_timeout
+
+        while (ids_set and (now_ts() < deadline)):
+            parts = []
+            for scan_id in sorted(ids_set):
+                parts.append(str(scan_id))
+            query_ids = ",".join(parts)
+
+            (status, body) = self.get(f"/state?id={query_ids}")
+            if (status != 200):
+                time.sleep(poll_interval_sec)
+                continue
+
+            state_map = self._parse_state_map(body)
+            now = now_ts()
+            for scan_id in list(ids_set):
+                state = state_map.get(scan_id, "")
+                if state in self.FINAL_STATES:
+                    states[scan_id] = state
+                    scan_cycle_end_times[scan_id] = now
+                    ids_set.remove(scan_id)
+
+            time.sleep(poll_interval_sec)
+
+        return states, scan_cycle_end_times, list(ids_set)
 
