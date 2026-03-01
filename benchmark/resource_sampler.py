@@ -68,4 +68,69 @@ class ResourceSampler:
                 # cpu 84946 236 11306 5321631 421 0 1721 0 0 0      cpu accumulation usage in different state
                 line = f.readline().strip()
             if not line.startswith("cpu "):
+                return None
+            
+            parts = line.split()[1:]
+            total = 0
+            for x in parts:
+                total += int(x)
+
+            return total
+        
+        except Exception:
+            return None
+
+    # d_process: read linux kernel /proc/{pid}/stat file
+    def _read_proc_cpu_jiffies(self, pid: int) -> Optional[int]:
+        try:
+            with open(f"/proc/{pid}/stat", "r", encoding="utf-8") as f:
+                data = f.read().strip()
+            if not data:
+                return None
+            
+            # pid (comm) state ppid ??
+            #            ^s
+            right = data.rfind(")")
+            if right == -1:
+                return None
+            rest = data[(right + 2):].split()
+
+            # get accumulated cpu usage: user mode time + system mode time
+            # utime/stime: fields 14/15 (1-indexed) (- stripped 2 column, and 0-indexed)
+            utime = int(rest[11])
+            stime = int(rest[12])
+            return utime + stime
+        
+        except Exception:
+            return None
+
+    # memory usage: read linux kernel /proc/{pid}/status file
+    def _read_proc_rss_bytes(self, pid: int) -> Optional[int]:
+        try:
+            with open(f"/proc/{pid}/status", "r", encoding="utf-8") as f:
+                for line in f:
+                    # VmRSS xxx kB 
+                    if line.startswith("VmRSS:"):
+                        parts = line.split()
+                        if (len(parts) >= 2):
+                            kb = int(parts[1])
+                            return kb * 1024    # bytes
+            return None
+        
+        except Exception:
+            return None
+
+
+    # public
+    def start(self):
+        # reset
+        self.collected_samples = []     
+        self._stop_sig.clear()
+        self._thread = threading.Thread(target=self._run, daemon=True)      # worker function = _run(); daemom: detach and kill
+        self._thread.start()
+
+    def stop(self):
+        self._stop_sig.set()
+        if (self._thread):
+            self._thread.join(timeout=2)    # return after timeout
 
