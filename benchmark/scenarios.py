@@ -138,4 +138,144 @@ class Scenarios:
             "status_409": status_409,     
             "status_400": status_400,      
             "status_timeout": status_timeout,
+            "status_other": status_other,   
+            "done": done,                   
+            "canceled": canceled,          
+            "failed": failed,              
+            "dropped": dropped,             
+            "custom_timeout": custom_timeout + len(scan_cycle_unclosed),    
+            "avg_latency_sec": round(statistics.mean(latencies), 4) if latencies else 0.0,  
+            "p95_latency_sec": round(percentile(latencies, 0.95), 4) if latencies else 0.0,
+            "elapsed_sec": round(elapsed, 4),   
+            "throughput_per_min": round((end_state / elapsed) * 60.0, 3),   
+        }
+           
+
+    def scenario_single(self, cfg: Dict) -> Dict:
+
+        # pick one root in cfg roots
+        ridx = as_int(cfg.get("root_index", 0), 0)
+        root = self.roots[ridx % len(self.roots)]
+
+        started = now_ts()
+        status, scan_id, submit_ts = self.client.post_scan(root)
+
+        return self._collect_result(started, 1, [(status, scan_id, submit_ts)], "scan")
+
+
+    def scenario_burst(self, cfg: Dict) -> Dict:
+        request_count = as_int(cfg.get("requests", 40), 40)
+        workers = as_int(cfg.get("submit_workers", 8), 8)
+
+        started = now_ts()
+        response_records = self._post_batch(request_count, workers, "scan", [])
+
+        return self._collect_result(started, request_count, response_records, "scan")
+
+
+    # scenario_overload is time-window based model
+    # while _post_batch is fixed-count based model
+    def scenario_overload(self, cfg: Dict) -> Dict:
+        test_duration = as_float(cfg.get("duration_sec", 20), 20.0)
+        workers = as_int(cfg.get("submit_workers", 20), 20)                
+        workers = max(1, workers)     # avoid 0 worker error of ThreadPoolExecutor
+        send_interval = as_float(cfg.get("sleep_between_submit_sec", 0.0), 0.0)
+
+        started = now_ts()
+        stop_ts = started + test_duration
+        lock = threading.Lock()
+        response_records = []
+
+        def worker(seed: int):
+            rnd = random.Random(seed)
+            while (now_ts() < stop_ts):
+                root = self.roots[rnd.randrange(0, len(self.roots))]    # randomly pick one root
+                status, sid, ts = self.client.post_scan(root)
+                with lock:      # protect response_records with lock  mutex
+                    response_records.append((status, sid, ts))
+                if send_interval > 0:
+                    time.sleep(send_interval)
+
+        threads = []
+        for i in range(workers):
+            thread = threading.Thread(target=worker, args=(i + 17,), daemon=True)
+            thread.start()
+            threads.append(thread)
+        for thread in threads:
+            thread.join()
+
+        # in this scenario, sent requeust as many as possible in duration, so request_count = len(response_records)
+        return self._collect_result(started, len(response_records), response_records, "scan")
+    
+
+    def scenario_cancel(self, cfg: Dict) -> Dict:
+        count = as_int(cfg.get("requests", 30), 30)
+        workers = as_int(cfg.get("submit_workers", 8), 8)
+        cancel_ratio = min(max(as_float(cfg.get("cancel_ratio", 1.0), 1.0), 0.0), 1.0)
+        cancel_delay = as_float(cfg.get("cancel_delay_sec", 0.0002), 0.0002)
+
+        # 1. post scan
+        started = now_ts()
+        records = self._post_batch(count, workers, "scan", [])
+
+        submit_map = {}
+        scan_submit_status_429 = 0
+        scan_submit_status_400 = 0
+        scan_submit_status_timeout = 0
+        scan_submit_status_other = 0
+        # First classify submit responses (including 429 / -1), then evaluate final states.
+        for status, sid, ts in records:
+            if status == 200 and sid:
+                submit_map[sid] = ts
+            elif status == 429:
+                scan_submit_status_429 += 1
+            elif status == 400:
+                scan_submit_status_400 += 1
+            elif status == -1:
+                scan_submit_status_timeout += 1
+            else:
+                scan_submit_status_other += 1
+
+        # 2. collect non-finished scan_ids
+        valid_cancel_ids = []
+        for sid in sorted(submit_map.keys()):
+            st = self.client.get_state(sid)
+            if st in {"PENDING", "RUNNING"}:
+                valid_cancel_ids.append(sid)
+
+        # simulate user operation
+        if cancel_delay > 0:
+            time.sleep(cancel_delay)
+
+        # Cancel only for runnable scans. Non PENDING/RUNNING scans are skipped.
+        valid_cancel_req = int(len(valid_cancel_ids) * cancel_ratio)
+        cancel_ids = valid_cancel_ids[:valid_cancel_req]
+
+        # 3. post cancel for non-finished scan_ids
+        response_records = self._post_batch(len(cancel_ids), workers, "cancel", cancel_ids)
+
+        result = self._collect_result(started, len(cancel_ids), response_records, "cancel")
+        # Keep pre-cancel POST /scan submit stats for expected scan-workload analysis.
+        result["scan_requests_total"] = count
+        result["scan_submit_requests_total"] = count
+        result["scan_submit_accepted"] = len(submit_map)
+        result["scan_submit_status_429"] = scan_submit_status_429
+        result["scan_submit_status_400"] = scan_submit_status_400
+        result["scan_submit_status_timeout"] = scan_submit_status_timeout
+        result["scan_submit_status_other"] = scan_submit_status_other
+        return result
+
+
+    def run_scenario(self, scenario: Dict):
+        stype = scenario.get("type", "")
+        if stype == "single":
+            return self.scenario_single(scenario)
+        if stype == "burst":
+            return self.scenario_burst(scenario)
+        if stype == "overload":
+            return self.scenario_overload(scenario)
+        if stype == "cancel":
+            return self.scenario_cancel(scenario)
+
+        raise ValueError(f"Unsupported scenario type: {stype}")
 
