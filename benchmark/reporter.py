@@ -148,4 +148,142 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
 
     entries_per_root = as_int(run_meta.get("scan_entries_per_root_expected", 0), 0)
     dirs_per_root = as_int(run_meta.get("scan_dirs_per_root_expected", 0), 0)
+    files_per_root = as_int(run_meta.get("scan_files_per_root_expected", 0), 0)
+
+    lines = []
+    lines.append("# Benchmark Report")
+    lines.append("")
+    lines.append(f"- Generated at (UTC): {run_meta['generated_at_utc']}")
+    lines.append(f"- Run directory: `{run_meta['run_dir']}`")
+    lines.append(f"- Project root: `{run_meta['project_root']}`")
+    lines.append(f"- Store mode in this run: `{store_mode_text}`")
+    lines.append("")
+
+    lines.append("## 1. Benchmark Goals")
+    lines.append("- Prove concurrency value: faster execution and higher throughput.")
+    lines.append("- Prove system control under pressure: backpressure instead of crash.")
+    lines.append("- Prove observability: `/metrics` can explain runtime behavior.")
+    lines.append("")
+
+    lines.append("## 2. Baseline vs Concurrent Design")
+    lines.append("- Baseline (near single-thread): `scan_pool_num_threads=1`, `fd_pool_num_threads=1`, `max_concurrent_scan=1`")
+    lines.append("- Concurrent profiles: current config and worker profiles `2/4/8/10`.")
+    lines.append("")
+
+    lines.append("## 3. Measured Metrics")
+    lines.append("- Latency:")
+    lines.append("  - scan scenarios: average and p95 from accepted `POST /scan` to terminal state `DONE`.")
+    if cancel_rows:
+        lines.append("  - `cancel_flow`: average and p95 from accepted `POST /cancel` to terminal state (`CANCELED` or `DROPPED`).")
+    lines.append("- Throughput:")
+    lines.append("  - scan scenarios: completed (`DONE`) scans per minute.")
+    if cancel_rows:
+        lines.append("  - `cancel_flow` scenario: terminal cancels (`CANCELED` + `DROPPED`) per minute.")
+
+    lines.append("- Scan total expected (entries):")
+    lines.append("  - Formula: `scan_total_expected_entries = done * scan_entries_per_root_expected`.")
+    lines.append(
+        "  - In this run, `scan_entries_per_root_expected={entries}` "
+        "(`dirs_per_root={dirs}` + `files_per_root={files}`) from fake dataset config.".format(
+            entries=entries_per_root, dirs=dirs_per_root, files=files_per_root
+        )
+    )
+    if cancel_rows:
+        lines.append("  - `cancel_flow` uses the same formula and therefore is usually `0` because `done=0` under cancel-target scenarios.")
+    lines.append("- Backpressure: HTTP 429 count under overload.")
+    lines.append("- Timeout(-1): client did not receive response (network/transport level).")
+    lines.append("- Resource usage: process CPU (`avg`, `p95`) and RSS memory peak (MB).")
+    lines.append("- Store mode (`store`):")
+    lines.append("  - `store=true`: keep exported result/index files under each profile `exports/` directory.")
+    lines.append("  - `store=false`: benchmark removes `exports/` directory after setup, so export files are not kept and DOES NOT export I/O at all.")
+    lines.append("- Per-profile/raw metrics are available in `results.json` for deeper analysis.")
+    lines.append("")
+
+    lines.append("## 4. Scenarios")
+    lines.append("1. `single_big_scan`: one large root scan.")
+    lines.append("2. `burst_submit`: burst submit 20-100 style load.")
+    lines.append("3. `overload_queue`: sustained high-rate submit until queues push back.")
+    lines.append("4. `cancel_flow`: submit a batch of scans, snapshot only ids still in `PENDING/RUNNING`, wait `cancel_delay_sec`, then `POST /cancel` for that filtered set and wait for terminal convergence.")
+    if cancel_rows:
+        lines.append(f"- config in this run: `cancel_delay_sec={cancel_delay_text}`.")
+        lines.append("- `cancel_delay_sec` is applied after the cancelable scans and before `POST /cancel`, so a larger delay usually increases late-cancel races and `409` responses.")
+    lines.append("")
+
+    lines.append("## 5. Directly Demonstrable Project Advantages")
+    lines.append("- Multi-level bounded queues with 429 backpressure (no unbounded acceptance).")
+    lines.append("- Scheduler enforces max concurrent scan ceiling; scan job queue enforces worker-level backpressure.")
+    lines.append("- Graceful cancel: PENDING -> DROPPED, RUNNING -> CANCELED via shared context flag.")
+    lines.append("- Drain/shutdown path converges cleanly under active load.")
+    lines.append("- Realtime observability: `/metrics` exposes queue depths, running counts, enqueue-reject and request-failed deltas.")
+    lines.append("")
+
+    lines.append("## 6. Summary Table")
+    lines.append("")
+    lines.append(
+        "| Profile | Scenario | Config | Latency Avg(s) | Latency P95(s) | Throughput (/min) | Expect_Scanned Size(entries) | Req_Total | Done | Reject (429) (cancel:409) | Timeout (-1) | CPU avg(%) | CPU p95(%) | RSS peak(MB) |"
+    )
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+
+    for r in rows:
+        scenario = r.get("scenario", "")
+        cfg = f"{r.get('scan_pool_num_threads','?')}/{r.get('fd_pool_num_threads','?')}/{r.get('max_concurrent_scan','?')}"
+        avg = as_float(r.get("avg_latency_sec", 0), 0.0)
+        p95 = as_float(r.get("p95_latency_sec", 0), 0.0)
+        tp = as_float(r.get("throughput_per_min", r.get("throughput_scan_per_min", 0)), 0.0)
+        req_total = as_int(r.get("requests_total", 0), 0)
+        done = as_int(r.get("done", 0), 0)
+        scan_total_expected = as_int(r.get("scan_total_expected_entries", 0), 0)
+        s429 = as_int(r.get("status_429", 0), 0)
+        s409 = as_int(r.get("status_409", 0), 0)
+        reject_code = s409 if scenario == "cancel_flow" else s429
+        stmo = as_int(r.get("status_timeout", 0), 0)
+        cpu_avg = as_float(r.get("cpu_avg_percent", 0), 0.0)
+        cpu_p95 = as_float(r.get("cpu_p95_percent", 0), 0.0)
+        rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
+
+        lines.append(
+            "| {profile} | {scenario} | {cfg} | {avg:.4f} | {p95:.4f} | {tp:.3f} | {scan_total_expected} | {req_total} | {done} | {reject_code} | {stmo} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |".format(
+                profile=r.get("profile", ""),
+                scenario=scenario,
+                cfg=cfg,
+                avg=avg,
+                p95=p95,
+                tp=tp,
+                scan_total_expected=scan_total_expected,
+                req_total=req_total,
+                done=done,
+                reject_code=reject_code,
+                stmo=stmo,
+                cpu_avg=cpu_avg,
+                cpu_p95=cpu_p95,
+                rss_peak=rss_peak,
+            )
+        )
+
+    lines.append("")
+    lines.append("## Speedup vs Baseline (single_big_scan)")
+    baseline = None
+    for r in rows:
+        if r.get("profile") == "baseline_single" and r.get("scenario") == "single_big_scan":
+            baseline = as_float(r.get("elapsed_sec", 0), 0)
+            break
+
+    if baseline and baseline > 0:
+        lines.append("| Profile | elapsed (s) | Speedup |")
+        lines.append("|---|---:|---:|")
+        for r in rows:
+            if r.get("scenario") != "single_big_scan":
+                continue
+            elapsed = as_float(r.get("elapsed_sec", 0), 0)
+            speedup = (baseline / elapsed) if elapsed > 0 else 0.0
+            lines.append(f"| {r.get('profile','')} | {elapsed:.4f} | {speedup:.3f}x |")
+    else:
+        lines.append("Baseline single_big_scan row not found; speedup table skipped.")
+
+    lines.append("")
+    lines.append("## Notes")
+    lines.append("- Full JSON: `results.json`.")
+    lines.append("- Service stdout/stderr logs are stored per profile in this run directory.")
+
+    return "\n".join(lines) + "\n"
 
