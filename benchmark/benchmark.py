@@ -218,4 +218,219 @@ def read_formatted_config(cfg_path: Path) -> Dict[str, str]:
 
 def main():
 
+    parser = argparse.ArgumentParser(description="Project benchmark runner for concurrency scanner")
+    parser.add_argument("--project-root", default=".", help="Project root path (default: current dir)")
+    parser.add_argument("--bench-config", default="benchmark/bench_config.json", help="Benchmark config path")
+    parser.add_argument("--base-config", default="config.ini", help="Base service config path")
+    parser.add_argument("--runs-dir", default="benchmark/runs", help="Benchmark run output directory")
+    parser.add_argument("--store", default=None, help="Override store mode from config: true/false")
+    args = parser.parse_args()
+
+    project_root = Path(args.project_root).resolve()
+    bench_cfg_path = (project_root / args.bench_config).resolve()
+    base_cfg_path = (project_root / args.base_config).resolve()
+    runs_dir = (project_root / args.runs_dir).resolve()
+    runs_dir.mkdir(parents=True, exist_ok=True)
+
+    if not bench_cfg_path.exists():
+        raise FileNotFoundError(f"Benchmark config not found: {bench_cfg_path}")
+    if not base_cfg_path.exists():
+        raise FileNotFoundError(f"Base config not found: {base_cfg_path}")
+    
+    # load Config
+
+    cfg = json.loads(bench_cfg_path.read_text(encoding="utf-8"))
+
+    run_id = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = runs_dir / run_id
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    dataset_cfg = cfg.get("dataset", {})
+    dataset_model = estimate_entries_per_root(dataset_cfg)
+    dataset_roots = make_fake_dataset(project_root, dataset_cfg)
+
+    host = cfg.get("host", "127.0.0.1")
+    base_port = as_int(cfg.get("base_port", 18080), 18080)
+    poll_metrics = as_float(cfg.get("metrics_poll_interval_sec", 1.0), 1.0)
+    poll_state = as_float(cfg.get("state_poll_interval_sec", 0.2), 0.2)
+    cycle_timeout = as_float(cfg.get("cycle_timeout_sec", 180), 180.0)
+    store_enabled = as_bool(cfg.get("store", True), True)
+    if args.store is not None:
+        store_enabled = as_bool(args.store, store_enabled)
+
+    profiles = cfg.get("profiles", [])
+    scenario_cfgs = cfg.get("scenarios", [])
+    service_command_spec = cfg.get("service_command", ["./service", "{config}"])
+
+    result_rows = []
+
+    for pidx, profile in enumerate(profiles):
+
+        profile_name = profile.get("name", f"profile_{pidx}")
+        profile_desc = profile.get("description", "")
+        port = base_port + pidx
+
+        profile_dir = run_dir / profile_name
+        profile_dir.mkdir(parents=True, exist_ok=True)
+        log_dir = str(profile_dir)
+
+        generated_cfg = profile_dir / "config.generated.ini"
+        create_formatted_cfg(base_cfg_path, generated_cfg, profile.get("overrides", {}), port, log_dir)
+        effective = read_formatted_config(generated_cfg)
+
+        cmd = build_service_command(service_command_spec, generated_cfg)
+        stdout_path = profile_dir / "service.stdout.log"
+        stderr_path = profile_dir / "service.stderr.log"
+
+        store_mode = "store" if store_enabled else "validate_only"
+        print(f"[benchmark] start profile={profile_name} port={port} store={store_mode}")
+        proc = start_service(cmd, project_root, stdout_path, stderr_path)
+        client = HttpClient(host=host, port=port, timeout_sec=3.0)
+
+        ready = client.wait_server_ready(wait_timeout=20)
+
+        if not ready:
+            try:
+                proc.kill()
+            except Exception:
+                pass
+            proc.wait(timeout=5)
+            row = {
+                "profile": profile_name,
+                "profile_desc": profile_desc,
+                "scenario": "_service_start_",
+                "error": "server_not_ready",
+                "store": store_enabled,
+            }
+            row.update(effective)
+            result_rows.append(row)
+            print(f"[benchmark] profile={profile_name} failed to start")
+            continue
+
+        export_dir = profile_dir / "exports"
+        export_dir.mkdir(parents=True, exist_ok=True)
+        export_dir_ready = False
+        for _ in range(20):
+            status = client.post_export_dir(str(export_dir))
+            if status == 200:
+                export_dir_ready = True
+                break
+            time.sleep(0.2)
+
+        if not export_dir_ready:
+            stop_service(client, proc, timeout_sec=10)
+            row = {
+                "profile": profile_name,
+                "profile_desc": profile_desc,
+                "scenario": "_set_export_dir_",
+                "error": "export_dir_not_ready",
+                "store": store_enabled,
+            }
+            row.update(effective)
+            result_rows.append(row)
+            print(f"[benchmark] profile={profile_name} failed to set export dir: {export_dir}")
+            continue
+        
+        if not store_enabled:
+            try:
+                shutil.rmtree(export_dir)
+            except Exception as e:
+                stop_service(client, proc, timeout_sec=10)
+                row = {
+                    "profile": profile_name,
+                    "profile_desc": profile_desc,
+                    "scenario": "_set_export_dir_",
+                    "error": f"export_dir_delete_failed:{e}",
+                    "store": store_enabled,
+                }
+                row.update(effective)
+                result_rows.append(row)
+                print(f"[benchmark] profile={profile_name} failed to delete export dir: {export_dir}")
+                continue
+
+            if export_dir.exists():
+                stop_service(client, proc, timeout_sec=10)
+                row = {
+                    "profile": profile_name,
+                    "profile_desc": profile_desc,
+                    "scenario": "_set_export_dir_",
+                    "error": "export_dir_delete_failed:path_still_exists",
+                    "store": store_enabled,
+                }
+                row.update(effective)
+                result_rows.append(row)
+                print(f"[benchmark] profile={profile_name} export dir still exists after delete: {export_dir}")
+                continue
+
+
+        for scenario_cfg in scenario_cfgs:
+
+            sname = scenario_cfg.get("name", scenario_cfg.get("type", "scenario"))
+            print(f"[benchmark] run profile={profile_name} scenario={sname}")
+
+            client.wait_metrics_reset(wait_timeout=60, poll_interval_sec=0.2)
+
+            metrics_sampler = MetricsSampler(client, poll_metrics)
+            resource_sampler = ResourceSampler(proc.pid, min(poll_metrics, 0.1))
+            start_metrics = client.get_metrics()
+            metrics_sampler.start()
+            resource_sampler.start()
+
+            scenario = Scenarios(client=client, roots=dataset_roots, poll_interval=poll_state, timeout_sec=cycle_timeout)
+            scenario_result = scenario.run_scenario(scenario_cfg)
+
+            metrics_sampler.stop()
+            resource_sampler.stop()
+            end_metrics = client.get_metrics()
+            metrics_summary = summarize_metrics(metrics_sampler.collected_samples, start_metrics, end_metrics)
+            resource_summary = summarize_resources(resource_sampler.collected_samples)
+
+            row = {
+                "profile": profile_name,
+                "profile_desc": profile_desc,
+                "scenario": sname,
+                "scenario_type": scenario_cfg.get("type", ""),
+                "store": store_enabled,
+            }
+            if scenario_cfg.get("type", "") == "cancel":
+                row["cancel_delay_sec"] = scenario_cfg.get("cancel_delay_sec", 0.0002)
+            row.update(effective)
+            row.update(scenario_result)
+            row["scan_requests_total"] = scenario_result.get("scan_requests_total", scenario_result.get("requests_total", 0))
+            done_scan_count = as_int(scenario_result.get("done", 0), 0)
+            row["done_scan_count"] = done_scan_count
+            row["scan_entries_per_root_expected"] = dataset_model["entries_per_root"]
+            row["scan_total_expected_entries"] = int(done_scan_count * dataset_model["entries_per_root"])
+            row.update(metrics_summary)
+            row.update(resource_summary)
+            result_rows.append(row)
+
+        stop_service(client, proc)
+        print(f"[benchmark] done profile={profile_name}")
+
+    results_json_path = run_dir / "results.json"
+    results_csv_path = run_dir / "results.csv"
+    report_md_path = run_dir / "report.md"
+
+    results_json_path.write_text(json.dumps(result_rows, ensure_ascii=True, indent=2), encoding="utf-8")
+
+    run_meta = {
+        "generated_at_utc": utc_iso(),
+        "run_dir": str(run_dir),
+        "project_root": str(project_root),
+        "scan_entries_per_root_expected": dataset_model["entries_per_root"],
+        "scan_dirs_per_root_expected": dataset_model["dirs_per_root"],
+        "scan_files_per_root_expected": dataset_model["files_per_root"],
+    }
+
+    report_md = build_report(run_meta, result_rows)
+    report_md_path.write_text(report_md, encoding="utf-8")
+
+    print(f"[benchmark] report: {report_md_path}")
+    print(f"[benchmark] csv: {results_csv_path}")
+    print(f"[benchmark] json: {results_json_path}")
+
+
+if __name__ == "__main__":
+    main()
 
