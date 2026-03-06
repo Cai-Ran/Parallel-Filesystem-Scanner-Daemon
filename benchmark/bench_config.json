@@ -1,0 +1,104 @@
+{
+  "service_command": ["./service", "{config}"],
+  "host": "127.0.0.1",
+  "base_port": 18080,
+  "store": true,
+  "metrics_poll_interval_sec": 0.02,
+  "state_poll_interval_sec": 0.01,
+  "cycle_timeout_sec": 600,
+  "dataset": {
+    "root_dir": "benchmark/data",
+    "root_count": 8,
+    "depth": 5,
+    "dirs_per_level": 4,
+    "files_per_dir": 80,
+    "file_size_bytes": 4096
+  },
+  "profiles": [
+    {
+      "name": "baseline_single",
+      "description": "Baseline (near single-thread)",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "1",
+        "manager.scan_pool_num_threads": "1",
+        "httpserver.fd_pool_num_threads": "1"
+      }
+    },
+    {
+      "name": "concurrent_current",
+      "description": "Use current project config (only force quick shutdown wait)",
+      "overrides": {
+        "daemon.user_download_sec": "0"
+      }
+    },
+    {
+      "name": "concurrent_2",
+      "description": "Concurrent profile with 2 workers",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "2",
+        "manager.scan_pool_num_threads": "2",
+        "httpserver.fd_pool_num_threads": "2"
+      }
+    },
+    {
+      "name": "concurrent_4",
+      "description": "Concurrent profile with 4 workers",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "4",
+        "manager.scan_pool_num_threads": "4",
+        "httpserver.fd_pool_num_threads": "4"
+      }
+    },
+    {
+      "name": "concurrent_8",
+      "description": "Concurrent profile with 8 workers",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "8",
+        "manager.scan_pool_num_threads": "8",
+        "httpserver.fd_pool_num_threads": "8"
+      }
+    },
+    {
+      "name": "concurrent_10",
+      "description": "Concurrent profile with 10 workers",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "10",
+        "manager.scan_pool_num_threads": "10",
+        "httpserver.fd_pool_num_threads": "10"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "single_big_scan",
+      "type": "single",
+      "root_index": 0
+    },
+    {
+      "name": "burst_submit",
+      "type": "burst",
+      "requests": 60,
+      "submit_workers": 12
+    },
+    {
+      "name": "overload_queue",
+      "type": "overload",
+      "duration_sec": 20,
+      "submit_workers": 20,
+      "sleep_between_submit_sec": 0.0
+    },
+    {
+      "name": "cancel_flow",
+      "type": "cancel",
+      "requests": 40,
+      "submit_workers": 10,
+      "cancel_delay_sec": 1.5
+    }
+  ]
+}
+
