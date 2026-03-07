@@ -1,0 +1,323 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>ScanTree Dashboard</title>
+  <style>
+    :root {
+      --bg-body: #121212;
+      --bg-card: #1e1e1e;
+      --bg-input: #2a2a2a;
+      --border-color: #333;
+      --text-main: #e0e0e0;
+      --text-muted: #9ca3af;
+      --primary: #3b82f6;
+      --primary-hover: #2563eb;
+      --danger: #ef4444;
+      --success: #10b981;
+      --accent: #8b5cf6;
+    }
+
+    body {
+      font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
+      background-color: var(--bg-body);
+      color: var(--text-main);
+      margin: 0;
+      padding: 24px;
+      font-size: 18px;
+    }
+
+    * { box-sizing: border-box; }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 24px;
+    }
+
+    .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 24px; }
+    
+    @media (max-width: 1024px) {
+      .grid-2 { grid-template-columns: 1fr; }
+    }
+
+    .card {
+      background-color: var(--bg-card);
+      border: 1px solid var(--border-color);
+      border-radius: 8px;
+      padding: 20px;
+      box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+    }
+
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 16px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border-color);
+    }
+
+    .card-title {
+      font-size: 1.3em;
+      font-weight: 600;
+      color: var(--text-main);
+      margin: 0;
+    }
+
+    .control-group {
+      display: flex;
+      flex-direction: column;
+      gap: 12px;
+    }
+
+    .input-row {
+      display: flex;
+      gap: 8px;
+    }
+
+    .input-row button {
+      min-width: 140px;
+    }
+
+    input {
+      flex: 1;
+      background-color: var(--bg-input);
+      border: 1px solid var(--border-color);
+      color: var(--text-main);
+      padding: 10px 12px;
+      border-radius: 6px;
+      outline: none;
+    }
+
+    input:focus { border-color: var(--primary); }
+    input:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    button {
+      background-color: var(--bg-input);
+      color: var(--text-main);
+      border: 1px solid var(--border-color);
+      padding: 8px 16px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-weight: 600;
+      transition: all 0.2s;
+    }
+
+    button:hover:not(:disabled) { background-color: #333; }
+    button:disabled { opacity: 0.4; cursor: not-allowed; }
+
+    .btn-primary { background-color: var(--primary); border-color: var(--primary); color: white; }
+    .btn-primary:hover:not(:disabled) { background-color: var(--primary-hover); }
+    
+    .btn-danger { background-color: rgba(239, 68, 68, 0.1); color: var(--danger); border-color: rgba(239, 68, 68, 0.3); font-size: 1.1em; }
+    .btn-danger:hover:not(:disabled) { background-color: rgba(239, 68, 68, 0.2); }
+
+    #promptMsg {
+      margin: 0;
+      padding: 12px;
+      background-color: rgba(80, 100, 200, 0.3);
+      /* border-left: 4px solid var(--primary); */
+      color: var(--text-main);
+      font-size: 1.3em;
+      min-height: 48px;
+      display: flex;
+      align-items: center;
+      white-space: pre-wrap;
+    }
+
+    /* Progress Bar */
+    #progressContainer {
+      height: 48px;
+      background: #2a2a2a;
+      border-radius: 0 0 8px 8px;
+      overflow: hidden;
+      display: none; /* Hidden by default */
+    }
+    #progressBar {
+      height: 100%;
+      width: 100%;
+      background: linear-gradient(90deg, var(--primary), var(--accent));
+      box-shadow: 0 0 12px var(--primary);
+      transition: width 1s linear;
+    }
+
+    /* Metrics Grid */
+    .metrics-section {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+      gap: 16px;
+    }
+
+    .metric-group h4 {
+      margin: 0 0 8px 0;
+      color: var(--text-muted);
+      font-size: 0.9em;
+      text-transform: uppercase;
+      border-bottom: 1px solid #333;
+    }
+
+    .metric-item {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 4px;
+    }
+
+    .metric-item span:first-child { color: #888; }
+
+    /* Tables */
+    .table-container { overflow-x: auto; }
+    table { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    th, td { padding: 12px; text-align: left; border-bottom: 1px solid var(--border-color); }
+    th { background-color: #252525; color: var(--text-muted); font-size: 1em; }
+    tr:hover td { background-color: #252525; }
+
+    /* Status Styling */
+    .state-RUNNING  { color: #60a5fa; font-weight: bold; }
+    .state-DONE     { color: #34d399; }
+    .state-CANCELED { color: #9ca3af; }
+    .state-FAILED, .state-DROPPED { color: #f87171; }
+    .state-PENDING  { color: #fbbf24; }
+    .exp-Exported   { color: #34d399; }
+    .exp-Exporting  { color: #60a5fa; }
+  </style>
+</head>
+<body>
+
+  <div class="container">
+    <div style="display:flex; justify-content:space-between; align-items:center;">
+      <h2 style="margin:0; color:white;">ScanTree <span style="color:var(--primary); font-size:0.8em;">Daemon</span></h2>
+      <button id="btnShutdown" class="btn-danger" onclick="shutdown() ">??Shutdown System</button>
+    </div>
+
+    <div class="grid-2">
+      <!-- Operations Card -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Operations</h3></div>
+        <div class="control-group">
+          <div class="input-row">
+            <input id="dir" placeholder="Export Directory Path" />
+            <button id="btnSetDir" class="btn-primary" onclick="set_dir()">Set Dir</button>
+          </div>
+          <div class="input-row">
+            <input id="root" placeholder="Target Scan Path" />
+            <button id="btnScan" class="btn-primary" onclick="scan()">Start Scan</button>
+          </div>
+          <button id="btnIndex" class="btn-primary" onclick="indexReport()">Create System Index</button>
+        </div>
+      </div>
+
+      <!-- Message Card -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">System Messages</h3></div>
+        <pre id="promptMsg">Please set export dir to start.</pre>
+        <div id="progressContainer">
+          <div id="progressBar"></div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Metrics Card -->
+    <div class="card">
+      <div class="card-header"><h3 class="card-title">System Health</h3></div>
+      <div class="table-container">
+        <table style="font-size: 0.95em;">
+          <thead>
+            <tr>
+              <th>Scheduler</th>
+              <th>ScanManager</th>
+              <th>HttpServer</th>
+              <th>ExportManager</th>
+              <th>Logger</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:0.8em; letter-spacing:1px;">SYSTEM SETTINGS</th></tr>
+            <tr>
+              <td>concurrency: <span id="m_const_scan_max_concurrent_number">-</span></td>
+              <td>job_threads: <span id="m_const_scan_job_pool_num_threads">-</span></td>
+              <td>req_threads: <span id="m_const_request_pool_num_threads">-</span></td>
+              <td>-</td>
+              <td>log_queue: <span id="m_const_logger_pending_queue_size">-</span></td>
+            </tr>
+            <tr>
+              <td>scan_queue: <span id="m_const_scan_pending_queue_size">-</span></td>
+              <td>job_queue: <span id="m_const_scan_job_queue_size">-</span></td>
+              <td>req_queue: <span id="m_const_request_queue_size">-</span></td>
+              <td>-</td>
+              <td>-</td>
+            </tr>
+            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:0.8em; letter-spacing:1px;">STATUS</th></tr>
+            <tr>
+              <td>pending: <span id="m_scan_pending">-</span></td>
+              <td>jobs_unfinished: <span id="m_scan_jobs_unfinished">-</span></td>
+              <td>req_submitted: <span id="m_request_jobs_submitted">-</span></td>
+              <td>exp_pending: <span id="m_export_pending">-</span></td>
+              <td>log_pending: <span id="m_logger_pending">-</span></td>
+            </tr>
+            <tr>
+              <td>running: <span id="m_scan_running">-</span></td>
+              <td>jobs_submitted: <span id="m_scan_jobs_submitted">-</span></td>
+              <td>req_failed: <span id="m_request_jobs_failed">-</span></td>
+              <td>exp_running: <span id="m_export_running">-</span></td>
+              <td>log_finished: <span id="m_logger_finished">-</span></td>
+            </tr>
+            <tr>
+              <td>-</td>
+              <td>jobs_rejected: <span id="m_scan_jobs_enqueue_reject">-</span></td>
+              <td>req_queued: <span id="m_request_jobs_queued">-</span></td>
+              <td>exp_finished: <span id="m_export_finished">-</span></td>
+              <td>log_fallback: <span id="m_logger_fallback">-</span></td>
+            </tr>
+            <tr>
+              <td>-</td>
+              <td>jobs_queued: <span id="m_scan_jobs_queued">-</span></td>
+              <td>-</td>
+              <td>-</td>
+              <td>-</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="grid-2" style="grid-template-columns: 2.5fr 1fr;">
+      <!-- Scans Table -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Active Scans</h3></div>
+        <div class="table-container">
+          <table id="scanTable">
+            <thead>
+              <tr>
+                <th>Time</th>
+                <th>Root Path</th>
+                <th>Status</th>
+                <th>Action</th>
+                <th>Export</th>
+                <th>Result</th>
+              </tr>
+            </thead>
+            <tbody id="scanTableRows"></tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Index History -->
+      <div class="card">
+        <div class="card-header"><h3 class="card-title">Index History</h3></div>
+        <div class="table-container">
+          <table id="indexTable">
+            <thead>
+              <tr><th>Time</th><th>Snapshot</th></tr>
+            </thead>
+            <tbody id="indexTableRows"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+  </div>
+
+
