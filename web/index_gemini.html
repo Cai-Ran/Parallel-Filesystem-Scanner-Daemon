@@ -190,7 +190,7 @@
   <div class="container">
     <div style="display:flex; justify-content:space-between; align-items:center;">
       <h2 style="margin:0; color:white;">ScanTree <span style="color:var(--primary); font-size:0.8em;">Daemon</span></h2>
-      <button id="btnShutdown" class="btn-danger" onclick="shutdown() ">??Shutdown System</button>
+      <button id="btnShutdown" class="btn-danger" onclick="shutdown() ">⏻ Shutdown System</button>
     </div>
 
     <div class="grid-2">
@@ -558,4 +558,160 @@ function mayUnblockScan() {
 // --- Helpers & Polling ---
 function insertScan(root, id) {
   scanItems.push({
+    seq: scanSeq++,
+    id: id,
+    root: root,
+    state: 'PENDING',
+    export_state: 'Unavailable',
+    time: formatTime(new Date()),
+    canceling: false
+  });
+  startPolling();
+  renderScans();
+}
 
+function updateScanMap(id, state, export_state) {
+  var changed = false;
+  for (var i = 0; i < scanItems.length; i++) {
+    var item = scanItems[i];
+    if (item.id == id) {
+      if (state && item.state !== state) { item.state = state; changed = true; }
+      if (export_state && item.export_state !== export_state) { item.export_state = export_state; changed = true; }
+      if (item.canceling && ['DONE','CANCELED','FAILED','DROPPED'].includes(state)) { item.canceling = false; changed = true; }
+    }
+  }
+  return changed;
+}
+
+async function pollTask() {
+  if (pausePoll || pollInFlight || !exportDirSet) return;
+  pollInFlight = true;
+  try {
+    await metrics();
+    var sIds = [], eIds = [];
+    scanItems.forEach(item => {
+      if (['PENDING','RUNNING'].includes(item.state)) sIds.push(item.id);
+      if (['DONE','CANCELED','FAILED'].includes(item.state) && item.export_state !== 'Exported') eIds.push(item.id);
+    });
+
+    var updated = false;
+    var batchSize = 50;
+    if (sIds.length > 0) {
+      for (var i = 0; i < sIds.length; i += batchSize) {
+        var batch = sIds.slice(i, i + batchSize);
+        var res = await fetch('/state?id=' + encodeURIComponent(batch.join(',')));
+        if (res.ok) { (await res.json()).forEach(r => { if(updateScanMap(r.id, r.state)) updated = true; }); }
+      }
+    }
+    if (eIds.length > 0) {
+      for (var i = 0; i < eIds.length; i += batchSize) {
+        var batch = eIds.slice(i, i + batchSize);
+        var res = await fetch('/exporting?id=' + encodeURIComponent(batch.join(',')));
+        if (res.ok) { (await res.json()).forEach(r => { if(updateScanMap(r.id, null, r.export_state)) updated = true; }); }
+      }
+    }
+    if (updated) renderScans();
+    
+    if (sIds.length > 0 || eIds.length > 0) {
+      setPollingInterval(1000);
+    } else {
+      setPollingInterval(10000);
+    }
+  } finally { pollInFlight = false; }
+}
+
+function startPolling() { if (!pollTimer) pollTimer = setInterval(pollTask, pollIntervalMs); }
+function setPollingInterval(ms) {
+  if (pollIntervalMs === ms) return;
+  pollIntervalMs = ms;
+  if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(pollTask, pollIntervalMs); }
+}
+
+function formatTime(d) {
+  var p = n => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+}
+
+function promptMsg(msg) { document.getElementById('promptMsg').textContent = typeof msg === 'string' ? msg : JSON.stringify(msg); }
+function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v ?? '-'; }
+
+function updateScanButtonState() {
+  var disabled = !exportDirSet || serverOffline || scanSubmitting || scanBlockedBy429;
+  document.getElementById('root').disabled = disabled;
+  var btn = document.getElementById('btnScan');
+  btn.disabled = disabled;
+  btn.textContent = scanBlockedBy429 ? 'Scan (busy)' : 'Start Scan';
+}
+
+function setActionButtonsEnabled(enabled) {
+  document.getElementById('root').disabled = !enabled;
+  document.getElementById('btnScan').disabled = !enabled;
+  document.getElementById('btnIndex').disabled = !enabled;
+  if (enabled) updateScanButtonState();
+  renderScans(); renderIndexHistory();
+}
+
+function insertIndexMap(id, ts) {
+  if (indexHistoryMap[id]) return false;
+  indexHistoryMap[id] = { time: formatTime(new Date(ts * 1000)) };
+  renderIndexHistory(); return true;
+}
+
+function findScanItemById(id) {
+  return scanItems.find(it => it.id == id);
+}
+
+// --- Rendering ---
+function renderScans() {
+  var tbody = document.getElementById('scanTableRows');
+  tbody.innerHTML = '';
+
+  // Group by root
+  var groupMap = {};
+  scanItems.forEach(it => {
+    if (!groupMap[it.root]) groupMap[it.root] = [];
+    groupMap[it.root].push(it);
+  });
+
+  // Sort groups by latest sequence
+  var roots = Object.keys(groupMap).sort((a, b) => {
+    var aSeq = groupMap[a][groupMap[a].length - 1].seq;
+    var bSeq = groupMap[b][groupMap[b].length - 1].seq;
+    return bSeq - aSeq;
+  });
+
+  roots.forEach(root => {
+    var group = groupMap[root];
+    for (var j = group.length - 1; j >= 0; j--) {
+      var data = group[j];
+      var tr = document.createElement('tr');
+      tr.innerHTML = `
+        <td>${data.time}</td>
+        <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;">${root}</td>
+        <td><span class="state-${data.state}">${data.state}</span></td>
+        <td><button ${ (serverOffline || data.canceling || !['RUNNING','PENDING'].includes(data.state)) ? 'disabled' : '' } onclick="cancelScan(${data.id})">${data.canceling ? '...' : 'Cancel'}</button></td>
+        <td><span class="exp-${data.export_state}">${data.export_state}</span></td>
+        <td><button ${ (!exportDirSet || data.export_state !== 'Exported') ? 'disabled' : '' } onclick="exportResult(${data.id})">Result</button></td>
+      `;
+      tbody.appendChild(tr);
+    }
+  });
+}
+
+function renderIndexHistory() {
+  var tbody = document.getElementById('indexTableRows');
+  tbody.innerHTML = '';
+  Object.keys(indexHistoryMap).sort((a,b) => Number(a)-Number(b)).forEach(v => {
+    var tr = document.createElement('tr');
+    tr.innerHTML = `<td>${indexHistoryMap[v].time}</td><td><button ${(!exportDirSet) ? 'disabled' : ''} onclick="indexResult(${v})">Snapshot</button></td>`;
+    tbody.appendChild(tr);
+  });
+}
+
+window.onload = async function() {
+  setActionButtonsEnabled(false);
+  await Promise.all([metrics(), fetchDownloadTime()]);
+};
+</script>
+</body>
+</html>
