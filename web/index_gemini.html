@@ -320,4 +320,242 @@
     </div>
   </div>
 
+<script>
+// ==========================================
+// Logic from index.html
+// ==========================================
+var indexHistoryMap = {};
+var scanItems = [];
+var scanSeq = 0;
+
+var pollTimer = null;
+var serverOffline = false;
+var exportDirSet = false;
+var pollInFlight = false;
+var pollIntervalMs = 1500;
+var scanSubmitting = false;
+var scanBlockedBy429 = false;
+var pausePoll = false;
+
+var load_metrics_first = true;
+var m_const_scan_pending_queue_size = 0;
+var m_scan_running = 0;
+var m_scan_pending = 0;
+
+var downloadTimeSec = 0;
+var countdownStarted = false;
+var countdownTimer = null;
+
+// --- API Calls ---
+async function scan() {
+  if (scanSubmitting || scanBlockedBy429 || serverOffline) return;
+  if (!exportDirSet) { promptMsg('Please set export dir first.'); return; }
+  
+  var root = document.getElementById('root').value || '';
+  scanSubmitting = true;
+  updateScanButtonState();
+
+  try {
+    var res = await fetch('/scan?root=' + encodeURIComponent(root), { method: 'POST' });
+    if (!res.ok) {
+      if (res.status == 503) { promptMsg('Server shutdown'); return; }
+      if (res.status == 429 || res.status == 400) {
+        if (res.status == 429) {
+          scanBlockedBy429 = true;
+          updateScanButtonState();
+        }
+        try {
+          var json = await res.json();
+          if (json && json.error) { promptMsg(json.error); return; }
+        } catch (_) { promptMsg('Submit scan failed: ' + res.status); }
+      }
+      return;
+    }
+    var json = await res.json();
+    insertScan(root, json.id);
+    setPollingInterval(1000);
+  } catch (e) { console.error(e); }
+  finally { scanSubmitting = false; updateScanButtonState(); }
+}
+
+async function set_dir() {
+  if (serverOffline) return;
+  var dir = document.getElementById('dir').value || '';
+  try {
+    var res = await fetch('/export_dir?dir=' + encodeURIComponent(dir), { method: 'POST' });
+    if (!res.ok) {
+      var msg = 'Set export dir failed: ' + res.status;
+      try { var err = await res.json(); if (err && err.error) msg = err.error; } catch (_) {}
+      promptMsg(msg);
+      return;
+    }
+    exportDirSet = true;
+    setActionButtonsEnabled(true);
+    promptMsg('Export dir set. You can now scan.');
+  } catch (e) { console.error(e); }
+}
+
+async function cancelScan(id) {
+  if (serverOffline) return;
+  var item = findScanItemById(id);
+  if (!item || item.canceling) return;
+
+  item.canceling = true;
+  pausePoll = true;
+  renderScans();
+
+  var ctrl = new AbortController();
+  var t = setTimeout(() => ctrl.abort(), 8000);
+
+  try {
+    var res = await fetch('/cancel?id=' + encodeURIComponent(id), { method: 'POST', signal: ctrl.signal });
+    if (res.ok) { promptMsg('Scan ' + id + ' cancel requested.'); }
+    else if (res.status === 409) { promptMsg('Scan ' + id + ' already finished.'); }
+    else { 
+      promptMsg('Cancel failed: ' + res.status);
+      item.canceling = false; 
+    }
+  } catch (e) { 
+    promptMsg('Cancel ' + (e.name === 'AbortError' ? 'timeout' : 'error'));
+    item.canceling = false; 
+  } finally {
+    clearTimeout(t);
+    pausePoll = false;
+    renderScans();
+  }
+}
+
+async function exportResult(id) {
+  try {
+    var res = await fetch('/export_summary?id=' + encodeURIComponent(id));
+    if (!res.ok) { promptMsg('Export failed: ' + res.status); return; }
+    var html = await res.text();
+    var win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); }
+    else { promptMsg('Popup blocked.'); }
+  } catch (e) { console.error(e); }
+}
+
+async function indexReport() {
+  if (serverOffline || !exportDirSet) return;
+  try {
+    var res = await fetch('/index', { method: 'POST' });
+    if (res.status == 204) { promptMsg('Index is empty'); return; }
+    if (!res.ok) { promptMsg('Index report failed.'); return; }
+    var json = await res.json();
+    if (!insertIndexMap(json.version, json.timestamp)) promptMsg('Index unchanged.');
+  } catch (e) { console.error(e); }
+}
+
+async function indexResult(version) {
+  try {
+    var res = await fetch('/index_summary?id=' + encodeURIComponent(version));
+    if (!res.ok) { promptMsg('Get index failed'); return; }
+    var html = await res.text();
+    var win = window.open('', '_blank');
+    if (win) { win.document.write(html); win.document.close(); }
+  } catch (e) { console.error(e); }
+}
+
+async function shutdown() {
+  if (serverOffline || !confirm('Shutdown the server?')) return;
+  try { await fetch('/shutdown', { method: 'POST' }); } catch (e) {}
+  serverOffline = true;
+  setActionButtonsEnabled(false);
+  document.getElementById('dir').disabled = true;
+  document.getElementById('btnSetDir').disabled = true;
+  promptMsg('Server shutting down... \nwait for export task to complete');
+}
+
+async function fetchDownloadTime() {
+  try {
+    var res = await fetch('/download_time');
+    if (!res.ok) return;
+    var json = await res.json();
+    downloadTimeSec = json.user_download_sec ?? 0;
+  } catch (e) { console.error(e); }
+}
+
+function startCountdown() {
+  if (countdownStarted || downloadTimeSec <= 0) return;
+  countdownStarted = true;
+  
+  var remaining = downloadTimeSec;
+  var progContainer = document.getElementById('progressContainer');
+  var progBar = document.getElementById('progressBar');
+  
+  if (progContainer) progContainer.style.display = 'block';
+
+  var updateUI = (rem) => {
+    promptMsg('You have ' + rem + ' sec to view results \nbefore termination.');
+    if (progBar) {
+      var pct = (rem / downloadTimeSec) * 100;
+      progBar.style.width = pct + '%';
+    }
+  };
+
+  updateUI(remaining);
+  
+  countdownTimer = setInterval(function() {
+    remaining--;
+    if (remaining <= 0) {
+      clearInterval(countdownTimer);
+      updateUI(0);
+      promptMsg('Service has been terminated.');
+    } else {
+      updateUI(remaining);
+    }
+  }, 1000);
+}
+
+async function metrics() {
+  try {
+    var res = await fetch('/metrics');
+    if (!res.ok) return;
+    var json = await res.json();
+    
+    if (load_metrics_first) {
+      m_const_scan_pending_queue_size = json.const_scan_pending_queue_size ?? 0;
+      setText('m_const_scan_max_concurrent_number', json.const_scan_max_concurrent_number);
+      setText('m_const_scan_job_pool_num_threads', json.const_scan_job_pool_num_threads);
+      setText('m_const_scan_job_queue_size', json.const_scan_job_queue_size);
+      setText('m_const_request_pool_num_threads', json.const_request_pool_num_threads);
+      setText('m_const_request_queue_size', json.const_request_queue_size);
+      setText('m_const_logger_pending_queue_size', json.const_logger_pending_queue_size);
+      load_metrics_first = false;
+    }
+
+    m_scan_running = json.scan_running ?? 0;
+    m_scan_pending = json.scan_pending ?? 0;
+
+    Object.keys(json).forEach(k => {
+      if (!k.startsWith('const_')) setText('m_' + k, json[k]);
+    });
+    
+    mayUnblockScan();
+
+    if (serverOffline && !countdownStarted &&
+        m_scan_running === 0 &&
+        m_scan_pending === 0 &&
+        (json.scan_jobs_unfinished ?? 0) === 0 &&
+        (json.export_pending ?? 0) === 0 &&
+        (json.export_running ?? 0) === 0) {
+      startCountdown();
+    }
+  } catch (e) {}
+}
+
+function mayUnblockScan() {
+  if (!scanBlockedBy429) return;
+  var hasCap = (m_const_scan_pending_queue_size > 0 && m_scan_pending < m_const_scan_pending_queue_size);
+  var isIdle = (m_scan_pending === 0 && m_scan_running === 0);
+  if (hasCap || isIdle) {
+    scanBlockedBy429 = false;
+    updateScanButtonState();
+  }
+}
+
+// --- Helpers & Polling ---
+function insertScan(root, id) {
+  scanItems.push({
 
