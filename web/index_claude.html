@@ -428,4 +428,362 @@ async function indexReport() {
     if (!exportDirSet) promptMsg('Please set export dir first.');
     return;
   }
+  try {
+    var res = await fetch('/index', { method: 'POST' });
+    if (res.status == 204) { promptMsg('system index is empty'); return; }
+    if (!res.ok) {
+      promptMsg(res.status == 429 ? 'Server busy, try again later.' : 'Index report failed.');
+      return;
+    }
+    var json = await res.json();
+    if (!insertIndexMap(json.version, json.timestamp))
+      promptMsg('system index is unchanged');
+  } catch (e) { console.error(e); }
+}
 
+// GET /index_summary?id=x
+async function indexResult(version) {
+  try {
+    var res = await fetch('/index_summary?id=' + encodeURIComponent(version));
+    if (!res.ok) { promptMsg('Get index failed: ' + res.status); return; }
+    var html = await res.text();
+    var win = window.open('', '_blank');
+    if (!win) { promptMsg('Popup blocked. Please allow popups for this site.'); return; }
+    win.document.write(html);
+    win.document.close();
+  } catch (e) { console.error(e); }
+}
+
+// POST /shutdown
+async function shutdown() {
+  if (serverOffline) return;
+  if (!confirm('Shutdown the server?')) return;
+  try {
+    await fetch('/shutdown', { method: 'POST' });
+  } catch (e) { /* server may close before responding */ }
+  serverOffline = true;
+  setActionButtonsEnabled(false);
+  var dirInp = document.getElementById('dir');
+  var btnD   = document.getElementById('btnSetDir');
+  if (dirInp) dirInp.disabled = true;
+  if (btnD)   btnD.disabled   = true;
+  promptMsg('Server shutting down... wait for export task to complete');
+  startShutdownMetricsPoll();
+}
+
+// POST /export_dir?dir=""
+async function set_dir() {
+  if (serverOffline) return;
+  var dir = document.getElementById('dir').value || '';
+  try {
+    var res = await fetch('/export_dir?dir=' + encodeURIComponent(dir), { method: 'POST' });
+    if (!res.ok) {
+      var msg = 'Set export dir failed: ' + res.status;
+      try { var err = await res.json(); if (err && err.error) msg = err.error; } catch (_) {}
+      promptMsg(msg);
+      return;
+    }
+    exportDirSet = true;
+    setActionButtonsEnabled(true);
+    promptMsg('Export dir set. You can now scan.');
+  } catch (e) { console.error(e); }
+}
+
+// ==========================================
+// Helpers
+// ==========================================
+
+function insertScanMap(root, id) {
+  startPolling();
+  scanItems.push({
+    seq: scanSeq++,
+    root: root,
+    id: id,
+    state: 'PENDING',
+    export_state: 'Unavailable',
+    time: formatTime(new Date()),
+    canceled: false
+  });
+  renderScans();
+}
+
+function updateScanMap(id, state, export_state) {
+  var changed = false;
+  for (var i = 0; i < scanItems.length; i++) {
+    var item = scanItems[i];
+    if (item.id == id) {
+      if (typeof state === 'string' && item.state !== state) {
+        item.state = state;
+        changed = true;
+      }
+      if (typeof export_state === 'string' && item.export_state !== export_state) {
+        item.export_state = export_state;
+        changed = true;
+      }
+      // clear canceled flag on terminal state
+      if (item.canceled &&
+          (state === 'DONE' || state === 'CANCELED' || state === 'FAILED' || state === 'DROPPED')) {
+        item.canceled = false;
+        changed = true;
+      }
+    }
+  }
+  return changed;
+}
+
+function insertIndexMap(id, timestamp) {
+  if (indexHistoryMap[id]) return false;
+  indexHistoryMap[id] = { time: formatTime(new Date(timestamp * 1000)) };
+  renderIndexHistory();
+  return true;
+}
+
+function promptMsg(msg) {
+  document.getElementById('promptMsg').textContent =
+    (typeof msg === 'string') ? msg : JSON.stringify(msg, null);
+}
+
+function formatTime(d) {
+  var pad = function(n) { return String(n).padStart(2, '0'); };
+  return d.getFullYear() + '-' + pad(d.getMonth()+1) + '-' + pad(d.getDate())
+       + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+}
+
+// ==========================================
+// Polling
+// ==========================================
+
+async function pollTask() {
+  if (pausePoll) return;
+  if (pollInFlight) return;
+  if (!exportDirSet) return;
+  pollInFlight = true;
+  try {
+    metrics();  // fire-and-forget, no await needed
+
+    var stateIdsToPoll  = [];
+    var exportIdsToPoll = [];
+    for (var i = 0; i < scanItems.length; i++) {
+      var item = scanItems[i];
+      if (item.state === 'PENDING' || item.state === 'RUNNING') {
+        stateIdsToPoll.push(item.id);
+      } else if ((item.state === 'DONE' || item.state === 'CANCELED')
+          && item.export_state !== 'Exported') {
+        exportIdsToPoll.push(item.id);
+      }
+    }
+
+    var updated = false;
+    var batchSize = 50;
+
+    for (var k = 0; k < stateIdsToPoll.length; k += batchSize) {
+      var rows = await fetchState(stateIdsToPoll.slice(k, k + batchSize));
+      for (var n = 0; n < rows.length; n++) {
+        if (updateScanMap(rows[n].id, rows[n].state, undefined)) updated = true;
+      }
+    }
+
+    for (var x = 0; x < exportIdsToPoll.length; x += batchSize) {
+      var erows = await fetchExporting(exportIdsToPoll.slice(x, x + batchSize));
+      for (var y = 0; y < erows.length; y++) {
+        if (updateScanMap(erows[y].id, undefined, erows[y].export_state)) updated = true;
+      }
+    }
+
+    if (updated) renderScans();
+
+    setPollingInterval(
+      (stateIdsToPoll.length > 0 || exportIdsToPoll.length > 0) ? 1000 : 10000
+    );
+  } finally {
+    pollInFlight = false;
+  }
+}
+
+function startPolling() {
+  if (pollTimer) return;
+  pollTimer = setInterval(pollTask, pollIntervalMs);
+}
+
+function setPollingInterval(ms) {
+  if (pollIntervalMs === ms) return;
+  pollIntervalMs = ms;
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = setInterval(pollTask, pollIntervalMs);
+  }
+}
+
+function setActionButtonsEnabled(enabled) {
+  var inp  = document.getElementById('root');
+  var btnS = document.getElementById('btnScan');
+  var btnI = document.getElementById('btnIndex');
+  if (!enabled) {
+    if (inp)  inp.disabled  = true;
+    if (btnS) btnS.disabled = true;
+    if (btnI) btnI.disabled = true;
+  } else {
+    if (btnI) btnI.disabled = false;
+    updateScanButtonState();
+  }
+  renderScans();
+  renderIndexHistory();
+}
+
+window.onload = async function() {
+  setActionButtonsEnabled(false);
+  await Promise.all([metrics(), fetchDownloadTime()]);
+};
+
+// ==========================================
+// Render
+// ==========================================
+
+function renderScans() {
+  var tbody = document.getElementById('scanTableRows');
+  tbody.innerHTML = '';
+
+  // group by root
+  var groupMap = {};
+  for (var i = 0; i < scanItems.length; i++) {
+    var it = scanItems[i];
+    if (!groupMap[it.root]) groupMap[it.root] = [];
+    groupMap[it.root].push(it);
+  }
+
+  // sort groups by latest seq (desc) → most recently active root on top
+  var roots = Object.keys(groupMap);
+  roots.sort(function(a, b) {
+    var aSeq = groupMap[a][groupMap[a].length - 1].seq;
+    var bSeq = groupMap[b][groupMap[b].length - 1].seq;
+    return bSeq - aSeq;
+  });
+
+  for (var g = 0; g < roots.length; g++) {
+    var root = roots[g];
+    var group = groupMap[root];
+    // within group: newest first
+    for (var j = group.length - 1; j >= 0; j--) {
+      var data = group[j];
+    var tr = document.createElement('tr');
+
+    // time
+    var td = document.createElement('td');
+    td.textContent = data.time;
+    tr.appendChild(td);
+
+    // root path
+    td = document.createElement('td');
+    td.textContent = root;
+    tr.appendChild(td);
+
+    // sched state (colored span)
+    td = document.createElement('td');
+    var span = document.createElement('span');
+    span.textContent = data.state || 'unknown';
+    span.className = 'state-' + (data.state || '');
+    td.appendChild(span);
+    tr.appendChild(td);
+
+    // cancel button
+    td = document.createElement('td');
+    var btnCancel = document.createElement('button');
+    // btnCancel.textContent = data.canceled ? 'Canceled' : 'Cancel';
+    btnCancel.textContent = 'Cancel';
+    btnCancel.disabled = serverOffline || data.canceled ||
+      (data.state !== 'RUNNING' && data.state !== 'PENDING');
+    (function(capturedId) {
+      btnCancel.onclick = async function() {
+        cancelScan(capturedId);
+      };
+    })(data.id);
+    td.appendChild(btnCancel);
+    tr.appendChild(td);
+
+    // export state (colored span)
+    td = document.createElement('td');
+    span = document.createElement('span');
+    span.textContent = data.export_state || 'unknown';
+    span.className = 'exp-' + (data.export_state || '');
+    td.appendChild(span);
+    tr.appendChild(td);
+
+    // result button
+    td = document.createElement('td');
+    var btnResult = document.createElement('button');
+    btnResult.textContent = 'Result';
+    btnResult.disabled = !exportDirSet || data.export_state !== 'Exported';
+    (function(capturedId) {
+      btnResult.onclick = function() { exportResult(capturedId); };
+    })(data.id);
+    td.appendChild(btnResult);
+    tr.appendChild(td);
+
+    tbody.appendChild(tr);
+    }
+  }
+}
+
+function renderIndexHistory() {
+  var tbody = document.getElementById('indexTableRows');
+  tbody.innerHTML = '';
+  var versions = Object.keys(indexHistoryMap).sort(function(a, b) { return Number(a) - Number(b); });
+  for (var i = 0; i < versions.length; i++) {
+    var version = versions[i];
+    var item = indexHistoryMap[version];
+    var tr = document.createElement('tr');
+
+    var td = document.createElement('td');
+    td.textContent = item.time;
+    tr.appendChild(td);
+
+    td = document.createElement('td');
+    var btn = document.createElement('button');
+    btn.textContent = 'Snapshot';
+    btn.disabled = !exportDirSet;
+    (function(capturedV) {
+      btn.onclick = function() { indexResult(capturedV); };
+    })(version);
+    td.appendChild(btn);
+    tr.appendChild(td);
+
+    tbody.appendChild(tr);
+  }
+}
+
+function setText(id, v) {
+  var el = document.getElementById(id);
+  if (el) el.textContent = (v == null) ? '-' : String(v);
+}
+
+function renderMetrics() {
+  setText('m_const_scan_max_concurrent_number', const_scan_max_concurrent_number);
+  setText('m_const_scan_pending_queue_size',    const_scan_pending_queue_size);
+  setText('m_scan_running',                     scan_running);
+  setText('m_scan_pending',                     scan_pending);
+
+  setText('m_const_scan_job_pool_num_threads',  const_scan_job_pool_num_threads);
+  setText('m_const_scan_job_queue_size',        const_scan_job_queue_size);
+  setText('m_scan_jobs_unfinished',             scan_jobs_unfinished);
+  setText('m_scan_jobs_submitted',              scan_jobs_submitted);
+  setText('m_scan_jobs_enqueue_reject',         scan_jobs_enqueue_reject);
+  setText('m_scan_jobs_queued',                 scan_jobs_queued);
+
+  setText('m_const_request_pool_num_threads',   const_request_pool_num_threads);
+  setText('m_const_request_queue_size',         const_request_queue_size);
+  setText('m_request_jobs_submitted',           request_jobs_submitted);
+  setText('m_request_jobs_failed',              request_jobs_failed);
+  setText('m_request_jobs_queued',              request_jobs_queued);
+
+  setText('m_export_pending',                   export_pending);
+  setText('m_export_running',                   export_running);
+  setText('m_export_finished',                  export_finished);
+
+  setText('m_const_logger_pending_queue_size',  const_logger_pending_queue_size);
+  setText('m_logger_pending',                   logger_pending);
+  setText('m_logger_finished',                  logger_finished);
+  setText('m_logger_fallback',                  logger_fallback);
+}
+</script>
+</body>
+</html>
