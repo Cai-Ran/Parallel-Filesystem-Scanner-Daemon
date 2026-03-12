@@ -7,6 +7,7 @@
 #include <iostream>
 #include <cassert>
 #include <vector>
+// #include <malloc.h>
 
 
 Exporter::Exporter(uint64_t scan_id_, std::string root_path_, bool canceled,
@@ -65,7 +66,9 @@ Exporter::check_deleted() {
             if ( it == scan_result.end()) {     //same root_path, in index but not in this scan result
                 deleted_map.emplace(path, ent);
             } else {
-                if (!ent.fp.match(it->second))  //in index also in this scan, check if modified
+                if (!ent.fp.match(it->second) && it->second.err.value() == 0)  
+                //in index also in this scan, check if modified
+                //skip error path
                     seen_with_update.emplace(path, true);
                 else
                     seen_with_update.emplace(path, false);
@@ -77,18 +80,20 @@ Exporter::check_deleted() {
 // updated data copied to index (mem: updated data*2)
 void 
 Exporter::update_index() {
-    Entry new_entry;
+    
     std::unordered_map<std::string, FileEvent>::iterator it = scan_result.begin();
 
     for (; it != scan_result.end(); ++it) { 
         std::unordered_map<std::string, bool>::iterator seen_it = seen_with_update.find(it->first);
-
+        
         if (seen_it != seen_with_update.end()) {    //seen and not modified
             bool& is_modified = seen_it->second;
             if (!is_modified)   continue;
         }
+        if (it->second.err.value() != 0)   continue;
         // not seen || seen & modified
         // new_entry.path = it->second.path;
+        Entry new_entry;
         new_entry.node_type = it->second.node_type;
         new_entry.fp.modtime = it->second.modtime;
         new_entry.fp.size = it->second.size;
@@ -99,6 +104,8 @@ Exporter::update_index() {
 
     //release memory of updated map
     seen_with_update = std::unordered_map<std::string, bool>{};
+    // std::cerr << "Exporter::update_index: seen_with_update map released\n";
+    // malloc_stats();
     AsyncLogger::logger().debug("Exporter::update_index: seen_with_update map released");
     AsyncLogger::logger().debug("Exporter::update_index; updated index - size: " + std::to_string(index.index_size()));
     std::unordered_map<std::string, Entry>::iterator deleted_it = deleted_map.begin();
@@ -193,6 +200,8 @@ Exporter::export_summary(std::string& file_path) {
 
     //release mem of struct
     scan_summary = {};
+    // std::cerr << "Exporter::export_summary: scan_summary struct released\n";
+    // malloc_stats();
     AsyncLogger::logger().debug("Exporter::export_summary: scan_summary struct released");
 
     ofs.flush();
@@ -305,6 +314,8 @@ Exporter::export_result(std::string& file_path) {
 
     //release memory of result map
     scan_result = std::unordered_map<std::string, FileEvent>{};
+    // std::cerr << "Exporter::export_result: scan_result map released\n";
+    // malloc_stats();
     AsyncLogger::logger().debug("Exporter::export_result: scan_result map released");
     
 
@@ -346,6 +357,8 @@ Exporter::export_result(std::string& file_path) {
 
     //release memory of deleted map
     deleted_map = std::unordered_map<std::string, Entry>{};
+    // std::cerr << "Exporter::export_result: deleted_map map released\n";
+    // malloc_stats();
     AsyncLogger::logger().debug("Exporter::export_result: deleted_map map released");
 
     ofs << "  ]\n";

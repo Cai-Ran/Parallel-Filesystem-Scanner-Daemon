@@ -60,6 +60,8 @@ MultiScanner::scan_one_node(const ScanData& data) {
     if (lstat(path.c_str(), &stat_buff) != 0) {          //handle dynamic path change error
         event.err = std::error_code(errno, std::generic_category());
         event.node_type = NodeType::UNKNOWN;
+        event.modtime = 0;
+        event.size = 0;
         data.context->result.record(std::move(event));
         return childrens;
     }
@@ -87,6 +89,9 @@ MultiScanner::scan_one_node(const ScanData& data) {
     //is dir -> DFS
     event.node_type = NodeType::DIR;
 
+    event.modtime = stat_buff.st_mtime;
+    event.size = stat_buff.st_size;
+
     // check open permission
     DIR* dir = opendir(path.c_str());
     if (!dir) {
@@ -106,8 +111,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
         return childrens;
     }
 
-    event.modtime = stat_buff.st_mtime;
-    event.size = stat_buff.st_size;
+
     event.err = {};
     data.context->result.record(std::move(event));
 

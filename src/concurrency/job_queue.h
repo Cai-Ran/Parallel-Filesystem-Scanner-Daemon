@@ -50,7 +50,7 @@ public:
             AsyncLogger::logger().error("JobQueue::QueueMetrics - submitted_total not bound");
         }
         if (!metrics.submitted_failed) {
-            AsyncLogger::logger().error("JobQueue::QueueMetrics - submitted_failed not bound");
+            AsyncLogger::logger().debug("JobQueue::QueueMetrics - submitted_failed not bound");
         } 
         if (!metrics.queued_number) {
             AsyncLogger::logger().error("JobQueue::QueueMetrics - queued_number not bound");
@@ -63,7 +63,7 @@ public:
     JobQueue(JobQueue&&) = delete;                      //JobQueue a(std::move(b));
     JobQueue& operator=(JobQueue&&) = delete;           // a = std::move(b);
 
-
+    //backpressure reject and response with full
     SubmitResult try_push(T&& item) {
         {
             std::lock_guard<std::mutex> lock(mtx);
@@ -90,6 +90,26 @@ public:
 
         return SubmitResult::Pushed;
     }
+
+
+    // void push(T&& item) {
+    //     {
+    //         std::unique_lock<std::mutex> lock(mtx);
+
+    //         while (!stop_flag && container.size() >= QUEUE_SIZE)
+    //             cv.wait(lock);
+
+    //         if (stop_flag)  return;
+
+    //         container.push_back(std::move(item));
+            
+
+    //         if (metrics.submitted_total)    metrics.submitted_total->fetch_add(1);
+    //         if (metrics.queued_number)      metrics.queued_number->fetch_add(1);
+    //     }
+
+    //     cv.notify_one();            //notify cv.wait in pop
+    // }
 
 
     bool pop(T& item) {
@@ -121,7 +141,7 @@ public:
             if (metrics.queued_number)  metrics.queued_number->fetch_sub(1);
         }
 
-        
+        // cv.notify_one();        //notify cv.wait in push()
 
         return true;
     }

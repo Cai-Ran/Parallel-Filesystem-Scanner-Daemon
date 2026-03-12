@@ -3,6 +3,7 @@
 
 #include <fstream>
 #include <unistd.h>
+// #include <malloc.h>
 
 
 
@@ -85,6 +86,8 @@ IndexReporter::export_index_summary(std::string& summary_path, time_t timestamp)
 
     //release mem of struct
     data = {};
+    // std::cerr << "IndexReporter::export_index_summary: IndexStats struct released\n";
+    // malloc_stats();
     AsyncLogger::logger().debug("IndexReporter::export_index_summary: IndexStats struct released");
     
 
