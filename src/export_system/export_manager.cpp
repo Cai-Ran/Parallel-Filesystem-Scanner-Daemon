@@ -31,7 +31,7 @@ ExportManager::run() {
 
 
         bool exported = export_result_and_index(std::move(data));
-        Metrics::measurement().export_running.fetch_sub(1);
+        // Metrics::measurement().export_running.fetch_sub(1);      //update too slow
 
 
         if (!exported)
@@ -120,16 +120,21 @@ bool
 ExportManager::scan_report(ExportData&& data, std::string& result_path, std::string& summary_path) {
     AsyncLogger::logger().debug("ExportManager::scan_report");
 
-    if (!formater::validate_outdir(export_dir))    return false;
+    if (!formater::validate_outdir(export_dir)) {
+        Metrics::measurement().export_running.fetch_sub(1);
+        return false;
+    }   
 
     Exporter exporter(data.scan_id, std::move(data.root_path), data.canceled, std::move(data.result), index);
-    if (!exporter.set_export_dir(export_dir))
+    if (!exporter.set_export_dir(export_dir)  ||
+        !exporter.export_result(result_path)  ||
+        !exporter.export_summary(summary_path)) 
+    {
+        Metrics::measurement().export_running.fetch_sub(1);
         return false;
-    if (!exporter.export_result(result_path))
-        return false;
-    if (!exporter.export_summary(summary_path))
-        return false;
+    }
         
+    Metrics::measurement().export_running.fetch_sub(1);
     return true;
 }
 

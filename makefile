@@ -38,8 +38,5 @@ clean:
 
 bench-full: all
 	@test -x ./service || (echo "service binary not found. run make first"; exit 1)
-	$(PYTHON) benchmark/benchmark.py --project-root . --bench-config benchmark/bench_config.json --runs-dir /mnt/c/Users/user/Desktop/PROJECT-mini/benchmark/runs --store false
-
-bench-speedup: all
-	@test -x ./service || (echo "service binary not found. run make first"; exit 1)
-	$(PYTHON) benchmark/benchmark.py --project-root . --bench-config benchmark/bench_speedup.json --runs-dir /mnt/c/Users/user/Desktop/PROJECT-mini/benchmark/runs --store false
+	sudo sh -c 'echo 3 > /proc/sys/vm/drop_caches'
+	$(PYTHON) benchmark/benchmark.py --project-root . --bench-config benchmark/bench_config.json --runs-dir /mnt/c/Users/user/Desktop/git-PROJECT-mini/benchmark/runs --store true

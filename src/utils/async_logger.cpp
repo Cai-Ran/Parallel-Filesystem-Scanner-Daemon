@@ -87,7 +87,7 @@ AsyncLogger::consume(LogItem& job) {
         
         Metrics::measurement().logger_pending.fetch_sub(1);
     }
-    cv.notify_all();
+    cv.notify_one();
 
     return true;
 }
