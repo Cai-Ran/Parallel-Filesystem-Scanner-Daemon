@@ -224,7 +224,7 @@
     <div class="card">
       <div class="card-header"><h3 class="card-title">System Health</h3></div>
       <div class="table-container">
-        <table style="font-size: 0.95em;">
+        <table style="font-size: 1.1em;">
           <thead>
             <tr>
               <th>Scheduler</th>
@@ -235,40 +235,40 @@
             </tr>
           </thead>
           <tbody>
-            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:0.8em; letter-spacing:1px;">SYSTEM SETTINGS</th></tr>
+            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:1.0em; letter-spacing:1px;">SYSTEM SETTINGS</th></tr>
             <tr>
               <td>concurrency: <span id="m_const_scan_max_concurrent_number">-</span></td>
               <td>job_threads: <span id="m_const_scan_job_pool_num_threads">-</span></td>
-              <td>req_threads: <span id="m_const_request_pool_num_threads">-</span></td>
+              <td>fd_threads: <span id="m_const_request_pool_num_threads">-</span></td>
               <td>-</td>
               <td>log_queue: <span id="m_const_logger_pending_queue_size">-</span></td>
             </tr>
             <tr>
               <td>scan_queue: <span id="m_const_scan_pending_queue_size">-</span></td>
               <td>job_queue: <span id="m_const_scan_job_queue_size">-</span></td>
-              <td>req_queue: <span id="m_const_request_queue_size">-</span></td>
+              <td>fd_queue: <span id="m_const_request_queue_size">-</span></td>
               <td>-</td>
               <td>-</td>
             </tr>
-            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:0.8em; letter-spacing:1px;">STATUS</th></tr>
+            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:1.0em; letter-spacing:1px;">STATUS</th></tr>
             <tr>
               <td>pending: <span id="m_scan_pending">-</span></td>
               <td>jobs_unfinished: <span id="m_scan_jobs_unfinished">-</span></td>
-              <td>req_submitted: <span id="m_request_jobs_submitted">-</span></td>
+              <td>fd_submitted: <span id="m_request_jobs_submitted">-</span></td>
               <td>exp_pending: <span id="m_export_pending">-</span></td>
               <td>log_pending: <span id="m_logger_pending">-</span></td>
             </tr>
             <tr>
               <td>running: <span id="m_scan_running">-</span></td>
               <td>jobs_submitted: <span id="m_scan_jobs_submitted">-</span></td>
-              <td>req_failed: <span id="m_request_jobs_failed">-</span></td>
+              <td>fd_rejected: <span id="m_request_jobs_failed">-</span></td>
               <td>exp_running: <span id="m_export_running">-</span></td>
               <td>log_finished: <span id="m_logger_finished">-</span></td>
             </tr>
             <tr>
               <td>-</td>
               <td>jobs_rejected: <span id="m_scan_jobs_enqueue_reject">-</span></td>
-              <td>req_queued: <span id="m_request_jobs_queued">-</span></td>
+              <td>fd_queued: <span id="m_request_jobs_queued">-</span></td>
               <td>exp_finished: <span id="m_export_finished">-</span></td>
               <td>log_fallback: <span id="m_logger_fallback">-</span></td>
             </tr>
@@ -333,6 +333,7 @@ var serverOffline = false;
 var exportDirSet = false;
 var pollInFlight = false;
 var pollIntervalMs = 1500;
+var pollIntervalIdleMs = 10000;
 var scanSubmitting = false;
 var scanBlockedBy429 = false;
 var pausePoll = false;
@@ -443,7 +444,8 @@ async function indexReport() {
     if (res.status == 204) { promptMsg('Index is empty'); return; }
     if (!res.ok) { promptMsg('Index report failed.'); return; }
     var json = await res.json();
-    if (!insertIndexMap(json.version, json.timestamp)) promptMsg('Index unchanged.');
+    var inserted = insertIndexMap(json.version, json.timestamp);
+    promptMsg((inserted ? 'Index updated.' : 'Index unchanged.'));
   } catch (e) { console.error(e); }
 }
 
@@ -464,7 +466,15 @@ async function shutdown() {
   setActionButtonsEnabled(false);
   document.getElementById('dir').disabled = true;
   document.getElementById('btnSetDir').disabled = true;
-  promptMsg('Server shutting down... \nwait for export task to complete');
+
+  var hasExporting = scanItems.some(item => item.export_state !== 'Exported');
+
+  if (hasExporting) {
+    promptMsg('Server shutting down...\nwait for export task to complete');
+  } else {
+    promptMsg('Server shutting down...');
+  }
+
 }
 
 async function fetchDownloadTime() {
@@ -516,6 +526,7 @@ async function metrics() {
     
     if (load_metrics_first) {
       m_const_scan_pending_queue_size = json.const_scan_pending_queue_size ?? 0;
+      setText('m_const_scan_pending_queue_size', m_const_scan_pending_queue_size);
       setText('m_const_scan_max_concurrent_number', json.const_scan_max_concurrent_number);
       setText('m_const_scan_job_pool_num_threads', json.const_scan_job_pool_num_threads);
       setText('m_const_scan_job_queue_size', json.const_scan_job_queue_size);
@@ -587,7 +598,7 @@ async function pollTask() {
   if (pausePoll || pollInFlight || !exportDirSet) return;
   pollInFlight = true;
   try {
-    await metrics();
+    // await metrics();
     var sIds = [], eIds = [];
     scanItems.forEach(item => {
       if (['PENDING','RUNNING'].includes(item.state)) sIds.push(item.id);
@@ -610,12 +621,16 @@ async function pollTask() {
         if (res.ok) { (await res.json()).forEach(r => { if(updateScanMap(r.id, null, r.export_state)) updated = true; }); }
       }
     }
-    if (updated) renderScans();
+    if (updated) {
+        renderScans();
+        await metrics();
+    }
+    
     
     if (sIds.length > 0 || eIds.length > 0) {
-      setPollingInterval(1000);
+      setPollingInterval(pollIntervalMs);
     } else {
-      setPollingInterval(10000);
+      setPollingInterval(pollIntervalIdleMs);
     }
   } finally { pollInFlight = false; }
 }
@@ -627,10 +642,28 @@ function setPollingInterval(ms) {
   if (pollTimer) { clearInterval(pollTimer); pollTimer = setInterval(pollTask, pollIntervalMs); }
 }
 
+
+var DISPLAY_TIME_START = new Date('2026-03-15T13:24:09');
+var REAL_TIME_START = new Date();
+var DISPLAY_TIME_OFFSET = DISPLAY_TIME_START.getTime() - REAL_TIME_START.getTime();
+
+function toDisplayTime(d) {
+  return new Date(d.getTime() + DISPLAY_TIME_OFFSET);
+}
+
+
 function formatTime(d) {
+  d = toDisplayTime(d);
   var p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
+
+
+
+// function formatTime(d) {
+//   var p = n => String(n).padStart(2, '0');
+//   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
+// }
 
 function promptMsg(msg) { document.getElementById('promptMsg').textContent = typeof msg === 'string' ? msg : JSON.stringify(msg); }
 function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v ?? '-'; }
@@ -710,7 +743,8 @@ function renderIndexHistory() {
 
 window.onload = async function() {
   setActionButtonsEnabled(false);
-  await Promise.all([metrics(), fetchDownloadTime()]);
+  await fetchDownloadTime();
+  await metrics();
 };
 </script>
 </body>
