@@ -26,7 +26,7 @@ A concurrent file system scanning daemon with:
 
 ### Demo
 
-<video src="./assets/demo.mp4" controls muted playsinline width="100%"></video>
+![Demo](assets/demo.gif)
 
 If embedded playback is not supported on your Markdown viewer, [open the demo video](./assets/demo.mp4).
 
