@@ -1,0 +1,42 @@
+{
+  "service_command": ["./service", "{config}"],
+  "host": "127.0.0.1",
+  "base_port": 18080,
+  "store": false,
+  "metrics_poll_interval_sec": 0.05,
+  "state_poll_interval_sec": 0.05,
+  "cycle_timeout_sec": 120,
+  "dataset": {
+    "root_dir": "benchmark/data-ci",
+    "root_count": 2,
+    "depth": 2,
+    "dirs_per_level": 2,
+    "files_per_dir": 10,
+    "file_size_bytes": 256
+  },
+  "profiles": [
+    {
+      "name": "ci_profile",
+      "description": "CI quick profile",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "2",
+        "manager.scan_pool_num_threads": "2",
+        "httpserver.fd_pool_num_threads": "2"
+      }
+    }
+  ],
+  "scenarios": [
+    {
+      "name": "single_smoke",
+      "type": "single",
+      "root_index": 0
+    },
+    {
+      "name": "burst_smoke",
+      "type": "burst",
+      "requests": 10,
+      "submit_workers": 2
+    }
+  ]
+}

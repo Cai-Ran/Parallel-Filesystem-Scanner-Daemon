@@ -1,0 +1,40 @@
+name: Benchmark
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ make python3
+
+      - name: Build service
+        run: make LOG_DIR=./log OUT_DIR=./test_output
+
+      - name: Run benchmark (CI profile)
+        run: |
+          python3 benchmark/benchmark.py \
+            --project-root . \
+            --bench-config benchmark/bench_config_ci.json \
+            --runs-dir benchmark/runs-ci \
+            --store false
+
+      - name: Upload benchmark artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-runs-ci
+          path: benchmark/runs-ci
+          if-no-files-found: warn
