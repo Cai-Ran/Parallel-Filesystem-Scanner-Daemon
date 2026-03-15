@@ -1,0 +1,57 @@
+name: Coverage
+
+on:
+  push:
+    branches: [master, main]
+  pull_request:
+    branches: [master, main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  coverage:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install toolchain
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y g++ cmake make python3-pip
+
+      - name: Install gcovr
+        run: python3 -m pip install --upgrade gcovr
+
+      - name: Build tests with coverage flags
+        run: |
+          cmake -S tests -B build-tests \
+            -DCMAKE_BUILD_TYPE=Debug \
+            -DCMAKE_CXX_FLAGS="--coverage" \
+            -DCMAKE_EXE_LINKER_FLAGS="--coverage"
+          cmake --build build-tests --target test_job_queue test_thread_pool -j"$(nproc)"
+
+      - name: Run unit tests
+        run: |
+          ./build-tests/test_job_queue
+          ./build-tests/test_thread_pool
+
+      - name: Generate coverage report
+        run: |
+          gcovr --root . --exclude-directories build-tests
+          gcovr --root . --exclude-directories build-tests --xml-pretty --output coverage.xml
+
+      - name: Upload coverage artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-xml
+          path: coverage.xml
+
+      - name: Upload to Codecov
+        uses: codecov/codecov-action@v5
+        with:
+          files: coverage.xml
+          fail_ci_if_error: false
