@@ -1,4 +1,14 @@
 # File System Scanning Daemon — Architecture
+[![CI](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/ci.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/ci.yml)
+[![Sanitizers](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/sanitizers.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/sanitizers.yml)
+[![Clang-Tidy](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/clang-tidy.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/clang-tidy.yml)
+[![Coverage](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/coverage.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/coverage.yml)
+[![Benchmark](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/benchmark.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/benchmark.yml)
+[![CodeQL](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/codeql.yml/badge.svg?branch=master)](https://github.com/Cai-Ran/Parallel-Filesystem-Scanner-Daemon/actions/workflows/codeql.yml)
+
+
+> Scope note: current Sanitizers/Coverage focus on unit-tested concurrency modules (`job_queue`, `thread_pool`) and selected `utils`, not full daemon/API end-to-end paths.
+
 
 ## Table of Contents
 
