@@ -593,3 +593,9 @@ Cancel throughput rises with concurrency, from `447.933/min` (`baseline_single`,
 - The system demonstrates clear parallel scan gains, robust backpressure behavior, and fast cancel-path responsiveness.
 - The primary bottleneck under load remains export-side pressure in `store=true`.
 - `concurrent_current (3/3/8)` is a practical production trade-off: strong throughput with lower CPU/RSS risk than aggressive high-thread symmetric profiles.
+
+
+
+## License
+This project is licensed under the Apache License 2.0 - see the [LICENSE](./LICENSE) file for details.
+
