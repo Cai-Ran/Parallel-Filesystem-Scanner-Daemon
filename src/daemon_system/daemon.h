@@ -34,13 +34,8 @@ public:
     bool cancel_scan(uint64_t scan_id);
     void shutdown();
 
-    bool set_export_dir(std::string&& export_dir);
     // bool check_exported(uint64_t scan_id);
     std::vector<bool> check_exported(const std::vector<uint64_t>& scan_ids);
-    bool export_result(uint64_t scan_id, \
-        std::string& result_path, std::string& summary_path);
-    bool get_newest_index(uint64_t& latest_scan_id, time_t& snapshot_timestamp);
-    bool index_report(uint64_t scan_id, \
-        std::string& detail_path, std::string& summary_path);
+
 
 };
