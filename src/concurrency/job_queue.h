@@ -80,36 +80,34 @@ public:
 
             container.push_back(std::move(item));
 
-            if (metrics.submitted_total)    metrics.submitted_total->fetch_add(1);
-            if (metrics.queued_number)      metrics.queued_number->fetch_add(1);
-
+            if (metrics.submitted_total)    metrics.submitted_total ->fetch_add(1);
+            if (metrics.queued_number)      metrics.queued_number   ->fetch_add(1);
         }
 
         cv.notify_one();
-
 
         return SubmitResult::Pushed;
     }
 
 
-    // void push(T&& item) {
-    //     {
-    //         std::unique_lock<std::mutex> lock(mtx);
+    void push(T&& item) {
+        {
+            std::unique_lock<std::mutex> lock(mtx);
 
-    //         while (!stop_flag && container.size() >= QUEUE_SIZE)
-    //             cv.wait(lock);
+            while (!stop_flag && container.size() >= QUEUE_SIZE)
+                cv.wait(lock);
 
-    //         if (stop_flag)  return;
+            if (stop_flag)  return;
 
-    //         container.push_back(std::move(item));
+            container.push_back(std::move(item));
             
 
-    //         if (metrics.submitted_total)    metrics.submitted_total->fetch_add(1);
-    //         if (metrics.queued_number)      metrics.queued_number->fetch_add(1);
-    //     }
+            if (metrics.submitted_total)    metrics.submitted_total ->fetch_add(1);
+            if (metrics.queued_number)      metrics.queued_number   ->fetch_add(1);
+        }
 
-    //     cv.notify_one();            //notify cv.wait in pop
-    // }
+        cv.notify_one();            //notify cv.wait in pop
+    }
 
 
     bool pop(T& item) {
@@ -141,7 +139,7 @@ public:
             if (metrics.queued_number)  metrics.queued_number->fetch_sub(1);
         }
 
-        // cv.notify_one();        //notify cv.wait in push()
+        cv.notify_one();        //notify cv.wait in push()
 
         return true;
     }
