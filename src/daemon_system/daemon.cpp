@@ -1,6 +1,9 @@
-#include <daemon.h>
-#include <async_logger.h>
-#include <metrics.h>
+#include "daemon.h"
+#include "async_logger.h"
+#include "database_connection.h"
+#include "database_initialization.h"
+#include "scan_table.h"
+#include "metrics.h"
 #include <csignal>
 #include <thread>
 #include <chrono>
@@ -20,6 +23,9 @@ Daemon::Daemon()
         },
         [this]() {
             scheduler.notify_dispatch_available();
+        },
+        [this](const std::string& root) {
+            scheduler.notify_export_done(root);
         }
     );
 };
@@ -46,7 +52,15 @@ Daemon::run() {
     std::signal(SIGINT, &terminate_handler);        //register SIG handler
     std::signal(SIGTERM, &terminate_handler);       //register SIG handler
 
+    
+    DatabaseConnection      db_con(Config::cfg().db().db_path);
+    DatabaseInitialization  init_db(db_con);
+
     manager.start();
+
+    ScanTable scan_table_reader(db_con);
+    scheduler.init_history_scan_id(scan_table_reader.get_max_id());
+
     std::thread t_scheduler(&Scheduler::run, &scheduler);
     std::thread t_httpserver(&HttpServer::run, &httpserver);
 
@@ -68,8 +82,10 @@ Daemon::run() {
             Metrics::measurement().scan_running.load() == 0         &&
             Metrics::measurement().scan_pending.load() == 0         &&
             Metrics::measurement().scan_jobs_unfinished.load() == 0 &&
-            Metrics::measurement().export_pending.load() == 0       &&
-            Metrics::measurement().export_running.load() == 0
+            Metrics::measurement().export_result_pending.load() == 0&&
+            Metrics::measurement().export_result_running.load() == 0&&
+            Metrics::measurement().export_delete_pending.load() == 0&&
+            Metrics::measurement().export_delete_running.load() == 0
         )
         {
             
@@ -109,30 +125,6 @@ Daemon::get_state(const std::vector<uint64_t>& scan_ids) {
 std::vector<bool> 
 Daemon::check_exported(const std::vector<uint64_t>& scan_ids) {
     return manager.check_exported(scan_ids);
-}
-
-bool
-Daemon::set_export_dir(std::string&& export_dir) {
-    return manager.set_export_dir(std::move(export_dir));
-}
-
-bool 
-Daemon::export_result(uint64_t scan_id, \
-    std::string& result_path, std::string& summary_path) 
-{
-    return manager.export_report(scan_id, result_path, summary_path);
-}
-
-bool
-Daemon::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
-    return manager.get_newest_index(version_number, snapshot_timestamp);
-}
-
-bool 
-Daemon::index_report(uint64_t scan_id, \
-    std::string& detail_path, std::string& summary_path) 
-{
-    return manager.index_report(scan_id, detail_path, summary_path);
 }
 
 bool 
