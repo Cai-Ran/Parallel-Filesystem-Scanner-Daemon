@@ -54,12 +54,14 @@ SIGINT / SIGTERM received | POST /shutdown
 │  scheduler.shutdown()                               │
 │    → cancel all running / pending scans             │
 │                                                     │
-│  poll metrics until all zero:                       │
-│    scan_running         == 0  ┐                     │
-│    scan_pending         == 0  │  wait...            │
-│    scan_jobs_unfinished == 0  │                     │
-│    export_pending       == 0  │                     │
-│    export_running       == 0  ┘                     │
+│  poll metrics until all zero:                           │
+│    scan_running              == 0  ┐                │
+│    scan_pending              == 0  │  wait...       │
+│    scan_jobs_unfinished      == 0  │                │
+│    export_result_pending     == 0  │                │
+│    export_result_running     == 0  │                │
+│    export_delete_pending     == 0  │                │
+│    export_delete_running     == 0  ┘                │
 └─────────────────────────────────────────────────────┘
          │
          ▼
@@ -94,11 +96,7 @@ SIGINT / SIGTERM received | POST /shutdown
   get_state()         ──────────► scheduler.get_state()
   cancel_scan()       ──────────► scheduler.cancel()
   shutdown()          ──────────► shutdown_flag = true
-  set_export_dir()    ──────────► manager.set_export_dir()
   check_exported()    ──────────► manager.check_exported()
-  export_result()     ──────────► manager.export_report()
-  get_newest_index()  ──────────► manager.get_newest_index()
-  index_report()      ──────────► manager.index_report()
 ```
 
 ---
@@ -186,23 +184,23 @@ SIGINT / SIGTERM received | POST /shutdown
                         httpserver.h / httpserver.cpp
 
                     Client                                                   
-                     ──────                                                            set_export_dir()
-                     TCP conn ──► server_socket                                        submit_scan()
-                                   0.0.0.0:port                                        cancel_scan()
-                                        │                                              get_state()
-                                        │ accept()                                     check_exported()
-                                        ▼                                              export_result()
-                               ┌───────────────┐                                       index_report()
-                               │  HttpServer   │                                       get_newest_index()
-                               │               │                                       shutdown()
-                               │  ┌──────────┐ │   handle_request()                    ─────────────────
-"Server busy" 429 ← full     ← │  │ fd_pool  │─┼──────────────────────────────────►    Daemon API 
+                     ──────                                                            submit_scan()
+                     TCP conn ──► server_socket                                        cancel_scan()
+                                   0.0.0.0:port                                        get_state()
+                                        │                                              check_exported()
+                                        │ accept()                                     shutdown()
+                                        ▼                                              ─────────────────
+                               ┌───────────────┐                                       Daemon API
+                               │  HttpServer   │                                       
+                               │               │
+                               │  ┌──────────┐ │   handle_request()
+"Server busy" 429 ← full     ← │  │ fd_pool  │─┼──────────────────────────────────►
                                │  │  FIFO    │ │   read_request()
 "Unavailable" 503 ← shutdown ← │  │ N threads│ │   router()
                                │  └──────────┘ │
                                │               │   Guards:
-                               │  drain_flag   │   export_dir_set → restrict routes
-                               │  stop_flag    │   drain_flag     → restrict routes
+                               │  drain_flag   │   drain_flag → restrict routes
+                               │  stop_flag    │
                                └───────────────┘
                                        │
                                        ▼
@@ -212,16 +210,11 @@ SIGINT / SIGTERM received | POST /shutdown
 ### Router Guards
 
 ```
-  export_dir not set  →  only allow:
-      GET  /                 POST /export_dir
-      GET  /metrics          POST /shutdown
-      GET  /download_time
-
-  drain_flag set      →  only allow:
-      GET  /                 GET  /metrics
-      GET  /state            GET  /exporting
-      GET  /export_summary   GET  /export_detail
-      GET  /index_summary    GET  /index_detail
+  drain_flag set  →  only allow:
+      GET  /                     GET  /metrics
+      GET  /state                GET  /exporting
+      GET  /scan_diff_summary    GET  /scan_diff_detail
+      GET  /index_summary        GET  /index_detail
 ```
 
 ---
@@ -231,16 +224,15 @@ SIGINT / SIGTERM received | POST /shutdown
 | Method | Path | Params | Action |
 |---|-----|-------|---|
 | `GET`  | `/` | — | Serve frontend HTML |
-| `POST` | `/export_dir` | `dir=<path>` | Set export directory (required before scans) |
 | `POST` | `/scan` | `root=<path>` | Submit a new scan; returns `{id}` |
 | `POST` | `/cancel` | `id=<id>` | Cancel a single pending or running scan |
 | `GET`  | `/state` | `id=1,2,3` | **Batch poll** — query states for comma-separated IDs; returns `[{id, state}, ...]` |
 | `GET`  | `/exporting` | `id=1,2,3` | **Batch poll** — query export states; returns `[{id, export_state}, ...]` |
-| `GET`  | `/export_summary` | `id=<id>` | Serve export summary HTML for one scan |
-| `GET`  | `/export_detail` | `id=<id>` | Serve export detail JSON for one scan |
-| `POST` | `/index` | — | Trigger index snapshot; returns `{state, version, timestamp}` |
-| `GET`  | `/index_summary` | `id=<version>` | Serve index summary HTML for one version |
-| `GET`  | `/index_detail` | `id=<version>` | Serve index detail JSON for one version |
+| `GET`  | `/scans_history` | `page=x&limit=x` | Paginated list of all scan tasks from DB |
+| `GET`  | `/scan_diff_summary` | `id=<id>` | Diff summary for one scan (added/modified/deleted counts) |
+| `GET`  | `/scan_diff_detail` | `id=x&state=ALL&page=x&limit=x` | Paginated diff entries for one scan |
+| `GET`  | `/index_summary` | `type=folder\|extension` | Aggregated index stats grouped by folder or extension |
+| `GET`  | `/index_detail` | `search=x&page=x&limit=x` | Search file index by keyword, paginated |
 | `GET`  | `/metrics` | — | Return runtime metrics JSON |
 | `GET`  | `/download_time` | — | Return `{user_download_sec}`: user download time after graceful shutdown |
 | `POST` | `/shutdown` | — | Initiate graceful shutdown |
