@@ -16,6 +16,7 @@ class HttpServer {
         
         uint16_t server_port;
         std::string frontend_path;
+        std::string db_path;
 
         time_t system_start_time;       //for reloading window, sync time
 
@@ -26,7 +27,6 @@ class HttpServer {
         int server_socket_fd = -1;      
 
         std::atomic<bool> drain_flag{false};
-        std::atomic<bool> export_dir_set{false};
 
         struct RequestContent {
             std::string method;
@@ -35,41 +35,42 @@ class HttpServer {
 
         // http helpers
         bool setup_server_socket();
-        bool setup_client_socket(int fd);
-        RequestContent read_request(int fd);
-        bool write_no_sigpipe(int fd, const std::string& data);
-        bool write_response(int fd, int status_code, \
-            const std::string& content_type, const std::string& body);
-        
+        bool setup_client_socket    (int fd);
+        RequestContent read_request (int fd);
+        bool write_no_sigpipe       (int fd, const std::string& data);
+        bool write_response         (int fd, int status_code, \
+                                    const std::string& content_type, const std::string& body);
         
         // request handlers
-        bool handle_request(int fd);
-        int router(int fd, const RequestContent& request);
+        bool handle_request         (int fd);
+        int router                  (int fd, const RequestContent& request);
 
         // response handlers
-        int response_homepage(int fd);                                      
-        int response_export_dir(int fd, const std::string& queries);        
-        int response_state(int fd, const std::string& queries);             
-        int response_exporting(int fd, const std::string& queries);
-        int response_scan(int fd, const std::string& queries);              
-        int response_cancel(int fd, const std::string& queries);          
-        int response_shutdown();                                            
-        int response_metrics(int fd);                                       
-        int response_export_summary(int fd, const std::string& queries);     //return path to front end
-        int response_export_detail(int fd, const std::string& queries);      //return path json
-        int response_index(int fd);                                          //return id, timestamp to frontend
-        int response_index_summary(int fd, const std::string& queries);      //return path to front end
-        int response_index_detail(int fd, const std::string& queries);       //return path json
-        int response_download_time(int fd);
+        // operations
+        int response_homepage       (int fd);           
+        int response_scan           (int fd, const std::string& queries);              
+        int response_cancel         (int fd, const std::string& queries);  
+        int response_shutdown       ();  
+        // system states                                
+        int response_state          (int fd, const std::string& queries);             
+        int response_exporting      (int fd, const std::string& queries);                            
+        int response_metrics        (int fd);            
+        int response_download_time  (int fd);
+        // results           
+        int response_scans_history          (int fd, const std::string& queries);
+        int response_scan_diff_summary      (int fd, const std::string& queries);
+        int response_scan_diff_detail       (int fd, const std::string& queries);
+        int response_index_search_detail    (int fd, const std::string& queries);
+        int response_index_summary_folder   (int fd);
+        int response_index_summary_extension(int fd);
 
         // utils
         static bool get_query_value(const std::string& queries, \
                 const std::string& key, std::string& value);
         static int char_to_num(char c);
         bool parse_id(const std::string& id_str, uint64_t& id);
+        bool parse_int(const std::string& str, int& i);
         bool serve_page(std::string file_path, std::string& body_buf);
-        bool assemble_html(uint64_t id, const std::string& detail_route, \
-                const std::string& summary_json, std::string& html_buf);
 
         // export state
         enum ExportState {
