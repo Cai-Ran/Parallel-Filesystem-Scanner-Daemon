@@ -1,8 +1,13 @@
-#include <httpserver.h>
-#include <daemon.h>
-#include <async_logger.h>
-#include <request_state.h>
-#include <submit_scan_result.h>
+#include "httpserver.h"
+#include "daemon.h"
+#include "async_logger.h"
+#include "request_state.h"
+#include "submit_scan_result.h"
+#include "index_reader.h"
+#include "scan_table.h"
+#include "os_info.h"
+#include "formater.h"
+
 
 
 #include <netinet/in.h>     //sockaddr_in, htons, ntohs
@@ -17,6 +22,7 @@
 #include <fstream>         
 #include <sstream>
 #include <vector>
+#include <climits>
 
 
 const size_t HttpServer::LIBHTTP_REQUEST_MAX_SIZE;
@@ -36,10 +42,11 @@ HttpServer::HttpServer(Daemon& daemon_)
     :daemon(daemon_), 
     fd_pool(    JobQueue<int>::QueueType::Fifo,
                 make_metrics(),
-                Config::cfg().httpserver().fd_queue_max_size,
-                Config::cfg().httpserver().fd_pool_num_threads),
-    server_port(Config::cfg().httpserver().server_port), 
-    frontend_path(Config::cfg().httpserver().frontend_path),
+                    Config::cfg().httpserver().fd_queue_max_size,
+                    Config::cfg().httpserver().fd_pool_num_threads),
+    server_port(    Config::cfg().httpserver().server_port), 
+    frontend_path(  Config::cfg().httpserver().frontend_path),
+    db_path(        Config::cfg().db().db_path),
     system_start_time(time(nullptr))
     {
         Metrics::measurement().const_request_pool_num_threads = Config::cfg().httpserver().fd_pool_num_threads;
@@ -109,7 +116,6 @@ HttpServer::setup_server_socket() {
 void 
 HttpServer::run() {
     drain_flag.store(false);
-    export_dir_set.store(false);
 
     if (!setup_server_socket())    return;  
 
@@ -364,17 +370,6 @@ HttpServer::handle_request(int fd) {
 int
 HttpServer::router(int fd, const RequestContent& request) {
 
-    bool dir_set = export_dir_set.load();
-    if (!dir_set) {
-        bool allow = 
-            (request.method == "GET"  && request.path == "/")                             ||
-            (request.method == "POST" && request.path.rfind("/export_dir", 0)       == 0) ||
-            (request.method == "GET"  && request.path.rfind("/metrics", 0)          == 0) ||
-            (request.method == "POST" && request.path.rfind("/shutdown", 0)         == 0) ||
-            (request.method == "GET"  && request.path.rfind("/download_time", 0)    == 0);
-        if (!allow) return 503;
-    }
-
     bool in_drain = drain_flag.load();
     if (in_drain) {
         bool allow =
@@ -382,10 +377,10 @@ HttpServer::router(int fd, const RequestContent& request) {
             (request.method == "GET" && request.path.rfind("/metrics", 0)          == 0) ||
             (request.method == "GET" && request.path.rfind("/state", 0)            == 0) ||
             (request.method == "GET" && request.path.rfind("/exporting", 0)        == 0) ||
-            (request.method == "GET" && request.path.rfind("/export_summary", 0)   == 0) ||
-            (request.method == "GET" && request.path.rfind("/export_detail", 0)    == 0) ||
-            (request.method == "GET" && request.path.rfind("/index_summary", 0)    == 0) ||
-            (request.method == "GET" && request.path.rfind("/index_detail", 0)     == 0);
+            (request.method == "GET" && request.path.rfind("/scan_diff_summary", 0)== 0) ||
+            (request.method == "GET" && request.path.rfind("/scan_diff_detail", 0) == 0) ||
+            (request.method == "GET" && request.path.rfind("/index_detail", 0)     == 0) ||
+            (request.method == "GET" && request.path.rfind("/index_summary", 0)    == 0);
         if (!allow) return 503;
     }
     
@@ -394,8 +389,6 @@ HttpServer::router(int fd, const RequestContent& request) {
         return response_homepage(fd);
     if (request.method == "POST" && request.path.rfind("/shutdown", 0)      == 0) 
         return response_shutdown();
-    if (request.method == "POST" && request.path.rfind("/index", 0)         == 0)
-        return response_index(fd);
     if (request.method == "GET" && request.path.rfind("/metrics", 0)        == 0)
         return response_metrics(fd);
     if (request.method == "GET" && request.path.rfind("/download_time", 0)  == 0)
@@ -408,24 +401,33 @@ HttpServer::router(int fd, const RequestContent& request) {
     std::string queries = request.path.substr(ques_pos+1);
     if (queries.empty())                    return 400;
 
-    if (request.method == "POST" && request.path.rfind("/export_dir", 0)    == 0)
-        return response_export_dir(fd, queries);
     if (request.method == "POST" && request.path.rfind("/scan", 0)          == 0)
         return response_scan(fd, queries);
     if (request.method == "POST" && request.path.rfind("/cancel", 0)        == 0) 
         return response_cancel(fd, queries);
-    if (request.method == "GET" && request.path.rfind("/state", 0)          == 0)
+    if (request.method == "GET" && request.path.rfind("/scans_history", 0)  == 0)
+        return response_scans_history(fd, queries);
+    if (request.method == "GET"  && request.path.rfind("/state", 0)         == 0)
         return response_state(fd, queries);
     if (request.method == "GET" && request.path.rfind("/exporting", 0)      == 0)
         return response_exporting(fd, queries);
-    if (request.method == "GET" && request.path.rfind("/export_summary", 0) == 0)
-        return response_export_summary(fd, queries);
-    if (request.method == "GET" && request.path.rfind("/export_detail", 0)  == 0)
-        return response_export_detail(fd, queries);
-    if (request.method == "GET" && request.path.rfind("/index_summary", 0)  == 0)
-        return response_index_summary(fd, queries);
-    if (request.method == "GET" && request.path.rfind("/index_detail", 0)   == 0)
-        return response_index_detail(fd, queries);
+
+    if (request.method == "GET"  && request.path.rfind("/scan_diff_summary", 0)         == 0)
+        return response_scan_diff_summary(fd, queries);
+    if (request.method == "GET"  && request.path.rfind("/scan_diff_detail", 0)          == 0)
+        return response_scan_diff_detail(fd, queries);
+    if (request.method == "GET"  && request.path.rfind("/index_detail", 0)              == 0)
+        return response_index_search_detail(fd, queries);
+    if (request.method == "GET"  && request.path.rfind("/index_summary", 0)             == 0) {
+        std::string summary_type = "";
+        if (!get_query_value(queries, "type", summary_type))                return 400;
+        if (summary_type == "extension")
+        return response_index_summary_extension(fd);  
+        if (summary_type == "folder")
+        return response_index_summary_folder(fd);
+        
+        return 400;
+    }
 
     return 404;
 }
@@ -498,6 +500,8 @@ HttpServer::response_scan(int fd, const std::string& queries) {
             return 503;
         case SubmitScanResult::InternalError:
             return 500;
+        case SubmitScanResult::OverlapConflict:
+            return 409;
         
         default:
             AsyncLogger::logger().error("invalid SubmitScanResult");
@@ -521,6 +525,45 @@ HttpServer::response_cancel(int fd, const std::string& queries) {
     return 200;
 }
 
+int     //GET   /metrics
+HttpServer::response_metrics(int fd) {
+    Metrics& metrics = Metrics::measurement();
+
+    std::string body =
+        "{\"const_scan_max_concurrent_number\":" + std::to_string(metrics.const_scan_max_concurrent_number) +
+        ",\"const_scan_pending_queue_size\":" + std::to_string(metrics.const_scan_pending_queue_size) +
+        ",\"scan_running\":" + std::to_string(metrics.scan_running.load()) +
+        ",\"scan_pending\":" + std::to_string(metrics.scan_pending.load()) +
+        ",\"const_scan_job_pool_num_threads\":" + std::to_string(metrics.const_scan_job_pool_num_threads) +
+        ",\"const_scan_job_queue_size\":" + std::to_string(metrics.const_scan_job_queue_size) +
+        ",\"const_request_pool_num_threads\":" + std::to_string(metrics.const_request_pool_num_threads) +
+        ",\"const_request_queue_size\":" + std::to_string(metrics.const_request_queue_size) +
+        ",\"const_result_que_size\":" + std::to_string(metrics.const_result_que_size) +
+        ",\"const_delete_que_size\":" + std::to_string(metrics.const_delete_que_size) +
+        ",\"const_logger_pending_queue_size\":" + std::to_string(metrics.const_logger_pending_queue_size) +
+        ",\"scan_jobs_unfinished\":" + std::to_string(metrics.scan_jobs_unfinished.load()) +
+        ",\"scan_jobs_submitted\":" + std::to_string(metrics.scan_jobs_submitted.load()) +
+        ",\"scan_jobs_enqueue_reject\":" + std::to_string(metrics.scan_jobs_enqueue_reject.load()) +
+        ",\"scan_jobs_queued\":" + std::to_string(metrics.scan_jobs_queued.load()) +
+        ",\"request_jobs_submitted\":" + std::to_string(metrics.request_jobs_submitted.load()) +
+        ",\"request_jobs_failed\":" + std::to_string(metrics.request_jobs_failed.load()) +
+        ",\"request_jobs_queued\":" + std::to_string(metrics.request_jobs_queued.load()) +
+        ",\"export_result_pending\":" + std::to_string(metrics.export_result_pending.load()) +
+        ",\"export_result_running\":" + std::to_string(metrics.export_result_running.load()) +
+        ",\"export_result_finished\":" + std::to_string(metrics.export_result_finished.load()) +
+        ",\"export_delete_pending\":" + std::to_string(metrics.export_delete_pending.load()) +
+        ",\"export_delete_running\":" + std::to_string(metrics.export_delete_running.load()) +
+        ",\"export_delete_finished\":" + std::to_string(metrics.export_delete_finished.load()) +
+        ",\"logger_pending\":" + std::to_string(metrics.logger_pending.load()) +
+        ",\"logger_finished\":" + std::to_string(metrics.logger_finished.load()) +
+        ",\"logger_fallback\":" + std::to_string(metrics.logger_fallback.load()) +
+        ",\"system_start_time\":" + std::to_string(system_start_time) +
+        "}";
+
+    write_response(fd, 200, "application/json", body);
+
+    return 0;
+}
 
 
 /*
@@ -537,30 +580,6 @@ death states:                                           -> no polling
 - export_manager                    EXPORTED
 
 */
-
-// int //GET /state?id=x
-// HttpServer::response_state(int fd, const std::string& queries) {
-
-//     std::string id_str = "";
-//     if (!get_query_value(queries, "id", id_str))         return 400;
-//     uint64_t id = 0;
-//     if (!parse_id(id_str, id))                           return 400;
-
-//     RequestState state = daemon.get_state(id);
-                                                                                            
-//     static std::string state_arr[7] = {                                 //DISPATCHING is PENDING
-//         "PENDING", "DROPPED", "RUNNING", "CANCELED", "DONE", "FAILED", "PENDING"
-//     };
-
-
-//     std::string body = "{\"id\":" + std::to_string(id) + 
-//                 ", \"state\":\"" + state_arr[static_cast<size_t>(state)] +
-//                 "\"}";
-
-//     write_response(fd, 200, "application/json", body);
-
-//     return 0;
-// }
 
 int //GET /state?id=1,2,3
 HttpServer::response_state(int fd, const std::string& queries) {
@@ -598,28 +617,6 @@ HttpServer::response_state(int fd, const std::string& queries) {
 }
 
 
-// int //GET /exporting?id=x
-// HttpServer::response_exporting(int fd, const std::string& queries) {
-//     std::string id_str = "";
-//     if (!get_query_value(queries, "id", id_str))         return 400;
-//     uint64_t id = 0;
-//     if (!parse_id(id_str, id))                           return 400;
-
-//     static std::string export_arr[3] = {"Unavailable", "Exporting", "Exported"};
-
-    // ExportState export_state;
-    // export_state = (!daemon.check_exported(id)) ? ExportState::Exporting : ExportState::Exported;
-
-    // std::string body = "{\"id\":" + std::to_string(id) + 
-    //         ", \"export_state\":\"" + export_arr[static_cast<size_t>(export_state)] +
-    //         "\"}";
-
-    // write_response(fd, 200, "application/json", body);
-
-//     return 0;
-// }
-
-
 int //GET /exporting?id=1,2,3
 HttpServer::response_exporting(int fd, const std::string& queries) {
     std::string ids_str = "";
@@ -654,176 +651,287 @@ HttpServer::response_exporting(int fd, const std::string& queries) {
 }
 
 
+int //GET /scans_history?page=x&limit=x
+HttpServer::response_scans_history(int fd, const std::string& queries) {
 
-int //GET /export_summary?id=x""
-HttpServer::response_export_summary(int fd, const std::string& queries) {
-    std::string id_str = "";
-    if (!get_query_value(queries, "id", id_str))        return 400;
-    uint64_t id = 0;
-    if (!parse_id(id_str, id))                          return 400;
+    std::string page_str = "";
+    if (!get_query_value(queries, "page", page_str))                return 400;
+    int page = 0;
+    if (!parse_int(page_str, page))                                 return 400;
 
-    if (!daemon.check_exported(std::vector<uint64_t>{id})[0])        return 500;
+    std::string limit_str = "";
+    if (!get_query_value(queries, "limit", limit_str))              return 400;
+    int limit = 0;
+    if (!parse_int(limit_str, limit))                               return 400;
 
-    std::string dummy, summary_path;
-    if (!daemon.export_result(id, dummy, summary_path))              return 500;
+    int offset = (page - 1) * limit;
 
-    std::string html_buf;
-    if (!assemble_html(id, "export_detail", summary_path, html_buf)) return 500;
 
-    write_response(fd, 200, "text/html", html_buf);
+    DatabaseConnection db_con(db_path);
+    ScanTable scan_table_reader(db_con);
+
+    std::string body = "{\"items\":[";
+    bool first = true;
+
+    static std::string state_arr[7] = {
+        "PENDING", "DROPPED", "RUNNING", "CANCELED", "DONE", "FAILED", "PENDING"
+    };
+
+
+
+    scan_table_reader.get_all(limit, offset, 
+        [&](const ScanTaskRow& row) {
+            if (!first) body += ",";
+            first = false;
+            body += "{"
+                "\"scan_id\":"      + std::to_string(row.scan_id)                   + ","
+                "\"submit_root\":\""+ row.submit_root                               + "\","
+                "\"start_time\":"   + std::to_string(row.start_time)                + ","
+                "\"finish_time\":"  + std::to_string(row.finish_time)               + ","
+                "\"end_state\":\""  + state_arr[static_cast<size_t>(row.end_state)] + "\""
+            + "}";
+        }
+    );
+
+    body += "]}";
+
+    write_response(fd, 200, "application/json", body);
     return 0;
 }
 
 
-int //GET /export_detail?id=x
-HttpServer::response_export_detail(int fd, const std::string& queries) {
+int //GET /scan_diff_summary?id=x
+HttpServer::response_scan_diff_summary(int fd, const std::string& queries) {
     std::string id_str = "";
     if (!get_query_value(queries, "id", id_str))                    return 400;
     uint64_t id = 0;
     if (!parse_id(id_str, id))                                      return 400;
 
     if (!daemon.check_exported(std::vector<uint64_t>{id})[0])       return 500;
+    
+    // read db
+    DatabaseConnection db_conn1(db_path);
+    ScanTable scans_reader(db_conn1);
+    DatabaseConnection db_conn2(db_path);
+    ScanDiff scan_diff_reader(db_conn2);
 
-    std::string detail_path, dummy;
-    if (!daemon.export_result(id, detail_path, dummy))              return 500;
+    ScanTaskRow data;
+    uint64_t total_size = 0;
+    int file_cnt = 0, dir_cnt = 0, link_cnt = 0;
+    scans_reader.get_data(id, data, total_size, file_cnt, dir_cnt, link_cnt);
+    uint64_t elapsed_time = data.finish_time - data.start_time;
 
-    // std::string body;
-    // if (!serve_page(detail_path, body))                             return 404;
-
-    std::string body = "{\"file_path\":\"" + detail_path + "\"}";
-
-    write_response(fd, 200, "application/json", body);
-    return 0;
-}
+    int new_cnt = 0, changed_cnt = 0, deleted_cnt = 0, canceled_cnt = 0, err_cnt = 0;
+    scan_diff_reader.get_scan_diff_count(id, new_cnt, err_cnt, deleted_cnt, canceled_cnt, changed_cnt);
 
 
-int //POST /index
-HttpServer::response_index(int fd) {
-
-    uint64_t version = 0;
-    time_t timestamp = 0;
     std::string body;
+    body = "{"
+        "\"id\":"           + std::to_string(id)                + ","
+        "\"root\":\""       + data.submit_root                  + "\","
+        "\"start_time\":"   + std::to_string(data.start_time)  + ","
+        "\"elapsed_time\":" + std::to_string(elapsed_time)      + ","
+        "\"file_count\":"   + std::to_string(file_cnt)          + ","
+        "\"dir_count\":"    + std::to_string(dir_cnt)           + ","
+        "\"link_count\":"   + std::to_string(link_cnt)          + ","
+        "\"total_size\":"   + std::to_string(total_size)        + ","
+        "\"new\":"          + std::to_string(new_cnt)           + ","
+        "\"changed\":"      + std::to_string(changed_cnt)       + ","
+        "\"deleted\":"      + std::to_string(deleted_cnt)       + ","
+        "\"error\":"        + std::to_string(err_cnt)           + ","
+        "\"canceled\":"     + std::to_string(canceled_cnt)
+    + "}";
 
-    daemon.get_newest_index(version, timestamp);
-
-    if (version == 0) {
-        return 204;
-    } else {
-        body = "{\"state\": \"ok\"" 
-                ",\"version\":" + std::to_string(version) + 
-                ",\"timestamp\":" + std::to_string(timestamp) +
-                "}";
-    }
     write_response(fd, 200, "application/json", body);
-
     return 0;
 }
 
 
-int //GET /index_summary?id=x
-HttpServer::response_index_summary(int fd, const std::string& queries) {
+int //GET /scan_diff_detail?id=x&state=ALL&page=x&limit=x
+HttpServer::response_scan_diff_detail(int fd, const std::string& queries) {
     std::string id_str = "";
     if (!get_query_value(queries, "id", id_str))                    return 400;
     uint64_t id = 0;
     if (!parse_id(id_str, id))                                      return 400;
 
-    std::string dummy1, summary_path;
-    if (!daemon.index_report(id, dummy1, summary_path))             return 500;
+    std::string page_str = "";
+    if (!get_query_value(queries, "page", page_str))                return 400;
+    int page = 0;
+    if (!parse_int(page_str, page))                                 return 400;
 
-    std::string html_buf;
-    if (!assemble_html(id, "index_detail", summary_path, html_buf)) return 500;
+    std::string limit_str = "";
+    if (!get_query_value(queries, "limit", limit_str))              return 400;
+    int limit = 0;
+    if (!parse_int(limit_str, limit))                               return 400;
 
-    write_response(fd, 200, "text/html", html_buf);
+    std::string state_str = "ALL";
+    get_query_value(queries, "state", state_str);
 
-    return 0;
-};
+    int state_filter = -1;
+    if      (state_str == "NEW")     state_filter = 0;
+    else if (state_str == "ERROR")   state_filter = 1;
+    else if (state_str == "DELETED") state_filter = 2;
+    else if (state_str == "CANCELED")state_filter = 3;
+    else if (state_str == "CHANGED") state_filter = 4;
 
 
-int //GET /index_detail?id=x
-HttpServer::response_index_detail(int fd, const std::string& queries) {
-    std::string id_str = "";
-    if (!get_query_value(queries, "id", id_str))        return 400;
-    uint64_t id = 0;
-    if (!parse_id(id_str, id))                          return 400;
+    if (!daemon.check_exported(std::vector<uint64_t>{id})[0])       return 500;
 
-    std::string detail_path, dummy2;
-    if (!daemon.index_report(id, detail_path, dummy2))  return 500;
+    int offset = (page - 1) * limit;
 
-    // std::string body;
-    // if (!serve_page(detail_path, body))                 return 404;
+    DatabaseConnection db_con(db_path);
+    ScanDiff scan_diff_reader(db_con);
 
-    std::string body = "{\"file_path\":\"" + detail_path + "\"}";
+    std::string body = "{\"items\":[";
+    bool first = true;
+
+    scan_diff_reader.get_scan_diff_detail(id, state_filter, limit, offset,
+        [&](const ScanRow& row, uint64_t old_size) {
+            if (!first) body += ",";
+            first = false;
+            body += "{"
+                "\"state\":"    + std::to_string(static_cast<int>(row.state)) + ","
+                "\"path\":\""   + row.path                                    + "\","
+                "\"size\":"     + std::to_string(row.size)                    + ","
+                "\"old_size\":" + std::to_string(old_size)
+            + "}";
+        }
+    );
+
+    body += "]}";
+
     write_response(fd, 200, "application/json", body);
-
     return 0;
 }
 
 
-int     //GET   /metrics
-HttpServer::response_metrics(int fd) {
-    Metrics& metrics = Metrics::measurement();
+int //GET /index_detail?search=x&page=x&limit=x
+HttpServer::response_index_search_detail(int fd, const std::string& queries) {
 
-    std::string body =
-        "{\"const_scan_max_concurrent_number\":" + std::to_string(metrics.const_scan_max_concurrent_number) +
-        ",\"const_scan_pending_queue_size\":" + std::to_string(metrics.const_scan_pending_queue_size) +
-        ",\"scan_running\":" + std::to_string(metrics.scan_running.load()) +
-        ",\"scan_pending\":" + std::to_string(metrics.scan_pending.load()) +
-        ",\"const_scan_job_pool_num_threads\":" + std::to_string(metrics.const_scan_job_pool_num_threads) +
-        ",\"const_scan_job_queue_size\":" + std::to_string(metrics.const_scan_job_queue_size) +
-        ",\"const_request_pool_num_threads\":" + std::to_string(metrics.const_request_pool_num_threads) +
-        ",\"const_request_queue_size\":" + std::to_string(metrics.const_request_queue_size) +
-        ",\"const_logger_pending_queue_size\":" + std::to_string(metrics.const_logger_pending_queue_size) +
-        ",\"scan_jobs_unfinished\":" + std::to_string(metrics.scan_jobs_unfinished.load()) +
-        ",\"scan_jobs_submitted\":" + std::to_string(metrics.scan_jobs_submitted.load()) +
-        ",\"scan_jobs_enqueue_reject\":" + std::to_string(metrics.scan_jobs_enqueue_reject.load()) +
-        ",\"scan_jobs_queued\":" + std::to_string(metrics.scan_jobs_queued.load()) +
-        ",\"request_jobs_submitted\":" + std::to_string(metrics.request_jobs_submitted.load()) +
-        ",\"request_jobs_failed\":" + std::to_string(metrics.request_jobs_failed.load()) +
-        ",\"request_jobs_queued\":" + std::to_string(metrics.request_jobs_queued.load()) +
-        ",\"export_pending\":" + std::to_string(metrics.export_pending.load()) +
-        ",\"export_running\":" + std::to_string(metrics.export_running.load()) +
-        ",\"export_finished\":" + std::to_string(metrics.export_finished.load()) +
-        ",\"logger_pending\":" + std::to_string(metrics.logger_pending.load()) +
-        ",\"logger_finished\":" + std::to_string(metrics.logger_finished.load()) +
-        ",\"logger_fallback\":" + std::to_string(metrics.logger_fallback.load()) +
-        ",\"system_start_time\":" + std::to_string(system_start_time) +
-        "}";
+    std::string keyword = "";
+    if (!get_query_value(queries, "search", keyword))               return 400;
+
+    std::string page_str = "";
+    if (!get_query_value(queries, "page", page_str))                return 400;
+    int page = 0;
+    if (!parse_int(page_str, page))                                 return 400;
+
+    std::string limit_str = "";
+    if (!get_query_value(queries, "limit", limit_str))              return 400;
+    int limit = 0;
+    if (!parse_int(limit_str, limit))                               return 400;
+
+
+    int offset = (page - 1) * limit;
+
+    DatabaseConnection db_con(db_path);
+    IndexReader reader(db_con);
+
+    std::string body = "{\"items\":[";
+    bool first = true;
+
+
+    reader.search(std::move(keyword), limit, offset,
+        [&](const IndexRow& row) {
+            if (!first) body += ",";
+            first = false;
+
+            body += "{";
+            body += "\"path\":\""       + row.path                                          + "\",";
+            body += "\"size\":"         + std::to_string(row.size)                          + ",";
+            body += "\"modtime\":"      + std::to_string(row.modtime)                       + ",";
+            body += "\"node_type\":\"" + formater::format_node(row.node_type)               + "\",";
+            body += "\"state\":\""     + formater::format_state(row.state)                  + "\",";
+            body += "\"err\":\""        + row.err                                           + "\"";
+            body += "}";
+        }
+    );
+
+    body += "]}";
 
     write_response(fd, 200, "application/json", body);
-
     return 0;
 }
 
 
-int     // POST /export_dir?dir=""
-HttpServer::response_export_dir(int fd, const std::string& queries) {
+int //GET /index_summary?type=folder
+HttpServer::response_index_summary_folder(int fd) {
 
-    std::string export_dir = "";
-    bool success = true;
+    DatabaseConnection db_con(db_path);
+    IndexReader reader(db_con);
+
+    std::string top_root = "";
+    reader.get_top_root_in_index(top_root);
+
+    std::unordered_map<std::string, uint64_t> folder_map;
+    reader.group_by_folder_in_snd_layer(top_root, folder_map);
+    std::unordered_map<std::string, uint64_t>::iterator it = folder_map.begin();
+
+    DiskInfo info;
+    os_info::get_disk_info_linux(top_root, info);
+
     std::string body;
-    if (!get_query_value(queries, "dir", export_dir)) {
-        body = "{\"error\": \"Empty export dir\" }";
-        success = false;
+    body = "{";
+    body += "\"disk_capacity_bytes\":"    + std::to_string(info.capacity_bytes)   + ",";
+    body += "\"disk_available_bytes\":"   + std::to_string(info.available_bytes)  + ",";
+    body += "\"root_directory\":\""       + top_root                              + "\",";
+    body += "\"folders\":[";
+    bool first = true;
+    for (; it != folder_map.end(); ++it) {
+        if (!first) body += ",";
+        first = false;
+        body += "{";
+        body += "\"folder\":\"" + it->first                  + "\",";
+        body += "\"bytes\":" + std::to_string(it->second);
+        body += "}";
     }
-    else if (!daemon.set_export_dir(std::move(export_dir))) {
-        body = "{\"error\": \"Invalid export dir\" }";
-        success = false;
-    }
-    if (!success) {
-        write_response(fd, 400, "application/json", body);
-        return 0;
-    }
+    body += "]";
+    body += "}";
 
-    else {
-        write_response(fd, 200, "application/json", "");
-        export_dir_set.store(true);
-    }
-
-    
+    write_response(fd, 200, "application/json", body);
     return 0;
 }
 
 
+int //GET /index_summary?type=extension
+HttpServer::response_index_summary_extension(int fd) {
+
+    DatabaseConnection db_con(db_path);
+    IndexReader reader(db_con);
+
+    std::string top_root = "";
+    reader.get_top_root_in_index(top_root);
+
+    std::unordered_map<std::string, std::pair<int,uint64_t>> extension_map;
+    reader.group_by_extension(top_root, extension_map);
+
+    std::unordered_map<std::string, std::pair<int,uint64_t>>::iterator it = extension_map.begin();
+
+    DiskInfo info;
+    os_info::get_disk_info_linux(top_root, info);
+
+    std::string body;
+    body = "{";
+    body += "\"disk_capacity_bytes\":"    + std::to_string(info.capacity_bytes)   + ",";
+    body += "\"disk_available_bytes\":"   + std::to_string(info.available_bytes)  + ",";
+    body += "\"root_directory\":\""       + top_root                              + "\",";
+    body += "\"extensions\":[";
+    bool first = true;
+    for (; it != extension_map.end(); ++it) {
+        if (!first) body += ",";
+        first = false;
+        body += "{";
+        body += "\"extension\":\""  + it->first                         + "\",";
+        body += "\"counts\":"       + std::to_string(it->second.first)  + ",";
+        body += "\"bytes\":"        + std::to_string(it->second.second);
+        body += "}";
+    }
+    body += "]";
+    body += "}";
+
+    write_response(fd, 200, "application/json", body);
+    return 0;
+}
 
 // ============
 // Utils
@@ -893,6 +1001,16 @@ HttpServer::parse_id(const std::string& id_str, uint64_t& id) {
 }
 
 bool
+HttpServer::parse_int(const std::string& str, int& i) {
+    long long l = atoll(str.c_str());
+    if (l <= 0) return false;
+
+    i = (l > INT_MAX) ? INT_MAX : static_cast<int>(l);
+
+    return true;
+}
+
+bool
 HttpServer::serve_page(std::string file_path, std::string& body_buf) {
     //// ios::in - open for reading / ios::binary - disables newline 
     std::ifstream in_file(file_path, std::ios::in | std::ios::binary);
@@ -907,32 +1025,3 @@ HttpServer::serve_page(std::string file_path, std::string& body_buf) {
 
     return true;
 }
-
-//frontend <a href="/detail?id=123">View Detail</a>
-//GET /export_detail?id=xx
-//GET /index_detail?id=xx
-bool
-HttpServer::assemble_html(uint64_t id, const std::string& detail_route,\
-    const std::string& summary_json, std::string& html_buf) {
-    std::string json_buf;
-    if (!serve_page(summary_json, json_buf))
-        return false;
-
-    html_buf = 
-        "<!doctype html>"
-        "<html>"
-        "<head>"
-            "<meta charset=\"utf-8\">"
-            "<title>Summary</title>"
-        "</head>"
-        "<body>"
-            "<a href=\"/" + detail_route + "?id=" + std::to_string(id) + "\">View Detail</a>"
-            "<h1>Summary</h1>"
-            "<pre>" + json_buf + "</pre>"
-        "</body>"
-        "</html>";
-
-    return true;
-}
-
-
