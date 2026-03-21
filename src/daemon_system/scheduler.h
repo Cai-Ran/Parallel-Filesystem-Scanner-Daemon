@@ -7,6 +7,7 @@
 #include <mutex>
 #include <condition_variable>
 #include <unordered_map>
+#include <unordered_set>
 #include <deque>
 #include <atomic>
 #include <string>
@@ -39,6 +40,7 @@ private:
     bool manager_queue_full = false;
 
     std::unordered_map<uint64_t, RequestState> state_map;   //every pending_queue scan must exist in this map
+    std::unordered_set<std::string> root_map;
 
     std::deque<PendingRoot> pending_queue;      
     std::atomic<uint64_t> next_scan_id{1};      // scan_id = 0: invalid id
@@ -46,6 +48,7 @@ private:
     // utils
     uint64_t gen_scan_id();
     std::string normalize_path(const std::string& path);
+    bool check_non_overlap_path(const std::string& path);
     
 
 
@@ -62,6 +65,7 @@ public:
         }
 
     // daemon api
+    void init_history_scan_id(uint64_t max_scan_id) { next_scan_id.store(max_scan_id+1); };
     void run();
     SubmitScanResult submit_scan_root(std::string&& root_path, uint64_t& scan_id);
     bool cancel(uint64_t scan_id);
@@ -72,6 +76,7 @@ public:
     // manager api
     void notify_scan_finished(uint64_t scan_id);
     void notify_dispatch_available();
+    void notify_export_done(const std::string& root);
     
 };
 
