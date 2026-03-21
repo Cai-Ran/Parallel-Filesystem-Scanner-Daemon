@@ -1,6 +1,6 @@
-#include <scheduler.h>
-#include <manager.h>
-#include <async_logger.h>
+#include "scheduler.h"
+#include "manager.h"
+#include "async_logger.h"
 
 #include <climits>
 #include <cstring>
@@ -26,12 +26,16 @@ Scheduler::submit_scan_root(std::string&& path, uint64_t& scan_id) {
         if (pending_scans >= static_cast<int>(QUEUE_MAX_SIZE))   return SubmitScanResult::QueueFull;
         //notify user queue is full wait later
 
+        if (!check_non_overlap_path(root_path))                  return SubmitScanResult::OverlapConflict;
+
         std::pair<std::unordered_map<uint64_t, RequestState>::iterator, bool> res = \
             state_map.emplace(new_id, RequestState::PENDING);
         if (!res.second) {
             AsyncLogger::logger().error("scan id already recorded in state map");
             return SubmitScanResult::InternalError;
         }
+
+        root_map.emplace(root_path);
 
         PendingRoot data(new_id, std::move(root_path));
         pending_queue.push_back(data);
@@ -73,7 +77,7 @@ Scheduler::run() {
                 
             std::unordered_map<uint64_t, RequestState>::iterator it = state_map.find(data.scan_id);
 
-            if (it == state_map.end() || (it != state_map.end() && it->second != RequestState::PENDING)) {
+            if (it == state_map.end() || it->second != RequestState::PENDING) {
                 if (it == state_map.end())  AsyncLogger::logger().error("Scheduler::run() - scan id not in state map");
 
                 if (!pending_queue.empty() && pending_queue.front().scan_id == data.scan_id) pending_queue.pop_front();      
@@ -272,7 +276,7 @@ Scheduler::notify_scan_finished(uint64_t scan_id) {
         }
     }
     
-    cv.notify_all();
+    cv.notify_one();
 }
 
 
@@ -284,6 +288,15 @@ Scheduler::notify_dispatch_available() {
     }
     
     cv.notify_all();
+}
+
+
+void //erase overlap root blocking
+Scheduler::notify_export_done(const std::string& root) {
+    {
+        std::lock_guard<std::mutex> lock(mtx);
+        root_map.erase(root);
+    }
 }
 
 
@@ -348,6 +361,16 @@ Scheduler::normalize_path(const std::string& path) {
         return "";
     }
     return std::string(absolute_path);
+}
+
+bool
+Scheduler::check_non_overlap_path(const std::string& path) {
+    if (root_map.find(path) != root_map.end())  return false;
+    std::unordered_set<std::string>::iterator it = root_map.begin();
+    for (; it!=root_map.end(); ++it)
+        if (formater::paths_overlap(path, *it)) return false;
+
+    return true;
 }
 
 
