@@ -3,7 +3,7 @@ from metrics_sampler import MetricsSampler
 from resource_sampler import ResourceSampler
 from scenarios import Scenarios
 from reporter import build_report, summarize_metrics, summarize_resources
-from helpers import as_int, as_float, as_bool, utc_iso
+from helpers import as_int, as_float, utc_iso
 import subprocess
 from typing import List, Dict
 from pathlib import Path
@@ -11,8 +11,6 @@ from datetime import datetime
 import json
 import argparse
 import configparser
-import time
-import shutil
 
 
 # ==================
@@ -223,7 +221,6 @@ def main():
     parser.add_argument("--bench-config", default="benchmark/bench_config.json", help="Benchmark config path")
     parser.add_argument("--base-config", default="config.ini", help="Base service config path")
     parser.add_argument("--runs-dir", default="benchmark/runs", help="Benchmark run output directory")
-    parser.add_argument("--store", default=None, help="Override store mode from config: true/false")
     args = parser.parse_args()
 
     project_root = Path(args.project_root).resolve()
@@ -254,13 +251,17 @@ def main():
     poll_metrics = as_float(cfg.get("metrics_poll_interval_sec", 1.0), 1.0)
     poll_state = as_float(cfg.get("state_poll_interval_sec", 0.2), 0.2)
     cycle_timeout = as_float(cfg.get("cycle_timeout_sec", 180), 180.0)
-    store_enabled = as_bool(cfg.get("store", True), True)
-    if args.store is not None:
-        store_enabled = as_bool(args.store, store_enabled)
 
     profiles = cfg.get("profiles", [])
     scenario_cfgs = cfg.get("scenarios", [])
     service_command_spec = cfg.get("service_command", ["./service", "{config}"])
+
+    for s in scenario_cfgs:
+        if s.get("type") in ("burst", "cancel"):
+            req = as_int(s.get("requests", 0), 0)
+            if len(dataset_roots) < req:
+                print(f"[benchmark] WARNING: scenario '{s.get('name')}' "
+                    f"requests={req} > root_count={len(dataset_roots)}, "f"same roots will repeat → root guard 409")
 
     result_rows = []
 
@@ -282,8 +283,20 @@ def main():
         stdout_path = profile_dir / "service.stdout.log"
         stderr_path = profile_dir / "service.stderr.log"
 
-        store_mode = "store" if store_enabled else "validate_only"
-        print(f"[benchmark] start profile={profile_name} port={port} store={store_mode}")
+        # Delete DB from previous profile so every profile starts with a fresh DB
+        db_ini = configparser.ConfigParser(interpolation=None)
+        db_ini.optionxform = str
+        db_ini.read(generated_cfg, encoding="utf-8")
+        db_path_rel = db_ini.get("db", "db_path", fallback="")
+        if db_path_rel:
+            db_file = (project_root / db_path_rel).resolve()
+            for suffix in ["", "-wal", "-shm"]:
+                p = Path(str(db_file) + suffix)
+                if p.exists():
+                    p.unlink()
+                    print(f"[benchmark] deleted {p}")
+
+        print(f"[benchmark] start profile={profile_name} port={port}")
         proc = start_service(cmd, project_root, stdout_path, stderr_path)
         client = HttpClient(host=host, port=port, timeout_sec=3.0)
 
@@ -300,67 +313,11 @@ def main():
                 "profile_desc": profile_desc,
                 "scenario": "_service_start_",
                 "error": "server_not_ready",
-                "store": store_enabled,
             }
             row.update(effective)
             result_rows.append(row)
             print(f"[benchmark] profile={profile_name} failed to start")
             continue
-
-        export_dir = profile_dir / "exports"
-        export_dir.mkdir(parents=True, exist_ok=True)
-        export_dir_ready = False
-        for _ in range(20):
-            status = client.post_export_dir(str(export_dir))
-            if status == 200:
-                export_dir_ready = True
-                break
-            time.sleep(0.2)
-
-        if not export_dir_ready:
-            stop_service(client, proc, timeout_sec=10)
-            row = {
-                "profile": profile_name,
-                "profile_desc": profile_desc,
-                "scenario": "_set_export_dir_",
-                "error": "export_dir_not_ready",
-                "store": store_enabled,
-            }
-            row.update(effective)
-            result_rows.append(row)
-            print(f"[benchmark] profile={profile_name} failed to set export dir: {export_dir}")
-            continue
-        
-        if not store_enabled:
-            try:
-                shutil.rmtree(export_dir)
-            except Exception as e:
-                stop_service(client, proc, timeout_sec=10)
-                row = {
-                    "profile": profile_name,
-                    "profile_desc": profile_desc,
-                    "scenario": "_set_export_dir_",
-                    "error": f"export_dir_delete_failed:{e}",
-                    "store": store_enabled,
-                }
-                row.update(effective)
-                result_rows.append(row)
-                print(f"[benchmark] profile={profile_name} failed to delete export dir: {export_dir}")
-                continue
-
-            if export_dir.exists():
-                stop_service(client, proc, timeout_sec=10)
-                row = {
-                    "profile": profile_name,
-                    "profile_desc": profile_desc,
-                    "scenario": "_set_export_dir_",
-                    "error": "export_dir_delete_failed:path_still_exists",
-                    "store": store_enabled,
-                }
-                row.update(effective)
-                result_rows.append(row)
-                print(f"[benchmark] profile={profile_name} export dir still exists after delete: {export_dir}")
-                continue
 
 
         for scenario_cfg in scenario_cfgs:
@@ -368,7 +325,11 @@ def main():
             sname = scenario_cfg.get("name", scenario_cfg.get("type", "scenario"))
             print(f"[benchmark] run profile={profile_name} scenario={sname}")
 
-            client.wait_metrics_reset(wait_timeout=60, poll_interval_sec=0.2)
+            not_timeout = client.wait_metrics_reset(wait_timeout=60, poll_interval_sec=0.2)
+            if not not_timeout:
+                print(f"[DEBUG] wait_metrics_reset timeout")
+            else:
+                print(f"[DEBUG] wait_metrics_reset passed")
 
             metrics_sampler = MetricsSampler(client, poll_metrics)
             resource_sampler = ResourceSampler(proc.pid, min(poll_metrics, 0.1))
@@ -390,7 +351,6 @@ def main():
                 "profile_desc": profile_desc,
                 "scenario": sname,
                 "scenario_type": scenario_cfg.get("type", ""),
-                "store": store_enabled,
             }
             if scenario_cfg.get("type", "") == "cancel":
                 row["cancel_delay_sec"] = scenario_cfg.get("cancel_delay_sec", 0.0002)
@@ -409,7 +369,6 @@ def main():
         print(f"[benchmark] done profile={profile_name}")
 
     results_json_path = run_dir / "results.json"
-    results_csv_path = run_dir / "results.csv"
     report_md_path = run_dir / "report.md"
 
     results_json_path.write_text(json.dumps(result_rows, ensure_ascii=True, indent=2), encoding="utf-8")
@@ -427,7 +386,6 @@ def main():
     report_md_path.write_text(report_md, encoding="utf-8")
 
     print(f"[benchmark] report: {report_md_path}")
-    print(f"[benchmark] csv: {results_csv_path}")
     print(f"[benchmark] json: {results_json_path}")
 
 
