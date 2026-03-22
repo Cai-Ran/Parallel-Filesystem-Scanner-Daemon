@@ -2,17 +2,16 @@
   "service_command": ["./service", "{config}"],
   "host": "127.0.0.1",
   "base_port": 18080,
-  "store": true,
   "metrics_poll_interval_sec": 0.02,
   "state_poll_interval_sec": 0.01,
   "cycle_timeout_sec": 600,
   "dataset": {
     "root_dir": "benchmark/data",
-    "root_count": 8,
+    "root_count": 60,
     "depth": 5,
     "dirs_per_level": 4,
     "files_per_dir": 80,
-    "file_size_bytes": 4096
+    "file_size_bytes": 0
   },
   "profiles": [
     {
@@ -22,7 +21,7 @@
         "daemon.user_download_sec": "0",
         "scheduler.max_concurrent_scan": "1",
         "manager.scan_pool_num_threads": "1",
-        "httpserver.fd_pool_num_threads": "1"
+        "httpserver.fd_pool_num_threads": "16"
       }
     },
     {
@@ -39,7 +38,17 @@
         "daemon.user_download_sec": "0",
         "scheduler.max_concurrent_scan": "2",
         "manager.scan_pool_num_threads": "2",
-        "httpserver.fd_pool_num_threads": "2"
+        "httpserver.fd_pool_num_threads": "16"
+      }
+    },
+    {
+      "name": "concurrent_3",
+      "description": "Concurrent profile with 3 workers",
+      "overrides": {
+        "daemon.user_download_sec": "0",
+        "scheduler.max_concurrent_scan": "3",
+        "manager.scan_pool_num_threads": "3",
+        "httpserver.fd_pool_num_threads": "16"
       }
     },
     {
@@ -49,27 +58,17 @@
         "daemon.user_download_sec": "0",
         "scheduler.max_concurrent_scan": "4",
         "manager.scan_pool_num_threads": "4",
-        "httpserver.fd_pool_num_threads": "4"
+        "httpserver.fd_pool_num_threads": "16"
       }
     },
     {
-      "name": "concurrent_8",
-      "description": "Concurrent profile with 8 workers",
+      "name": "concurrent_5",
+      "description": "Concurrent profile with 5 workers",
       "overrides": {
         "daemon.user_download_sec": "0",
-        "scheduler.max_concurrent_scan": "8",
-        "manager.scan_pool_num_threads": "8",
-        "httpserver.fd_pool_num_threads": "8"
-      }
-    },
-    {
-      "name": "concurrent_10",
-      "description": "Concurrent profile with 10 workers",
-      "overrides": {
-        "daemon.user_download_sec": "0",
-        "scheduler.max_concurrent_scan": "10",
-        "manager.scan_pool_num_threads": "10",
-        "httpserver.fd_pool_num_threads": "10"
+        "scheduler.max_concurrent_scan": "5",
+        "manager.scan_pool_num_threads": "5",
+        "httpserver.fd_pool_num_threads": "16"
       }
     }
   ],
