@@ -5,6 +5,7 @@ enum class SubmitScanResult {
     Invalid,
     QueueFull,
     Shutdown,
-    InternalError
+    InternalError,
+    OverlapConflict
 };
 
