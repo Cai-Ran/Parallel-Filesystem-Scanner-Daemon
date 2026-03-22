@@ -2,17 +2,16 @@
   "service_command": ["./service", "{config}"],
   "host": "127.0.0.1",
   "base_port": 18080,
-  "store": false,
   "metrics_poll_interval_sec": 0.01,
   "state_poll_interval_sec": 0.05,
   "cycle_timeout_sec": 120,
   "dataset": {
     "root_dir": "benchmark/data-ci",
-    "root_count": 2,
+    "root_count": 100,
     "depth": 2,
     "dirs_per_level": 2,
     "files_per_dir": 10,
-    "file_size_bytes": 256
+    "file_size_bytes": 0
   },
   "profiles": [
     {
