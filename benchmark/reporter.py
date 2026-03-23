@@ -3,6 +3,7 @@ from helpers import as_float, as_bool, as_int, percentile
 import statistics
 
 
+
 U64_WRAP_SUSPECT_THRESHOLD = 1 << 63
 
 def _mark_metric_hit(hit_map: Dict[str, Dict[str, int]], kind: str, key: str):
@@ -131,20 +132,6 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
         unique_delays = sorted(set(cancel_delay_values))
         cancel_delay_text = ", ".join(f"{v:g}" for v in unique_delays)
 
-    store_flags = []
-    for r in rows:
-        if "store" in r:
-            store_flags.append(as_bool(r.get("store"), False))
-
-    if store_flags:
-        unique_store = sorted(set(store_flags))
-        if len(unique_store) == 1:
-            store_mode_text = "true" if unique_store[0] else "false"
-        else:
-            store_mode_text = "mixed(" + ",".join("true" if v else "false" for v in unique_store) + ")"
-    else:
-        store_mode_text = "unknown"
-
 
     entries_per_root = as_int(run_meta.get("scan_entries_per_root_expected", 0), 0)
     dirs_per_root = as_int(run_meta.get("scan_dirs_per_root_expected", 0), 0)
@@ -156,7 +143,6 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append(f"- Generated at (UTC): {run_meta['generated_at_utc']}")
     lines.append(f"- Run directory: `{run_meta['run_dir']}`")
     lines.append(f"- Project root: `{run_meta['project_root']}`")
-    lines.append(f"- Store mode in this run: `{store_mode_text}`")
     lines.append("")
 
     lines.append("## 1. Benchmark Goals")
@@ -166,8 +152,8 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("")
 
     lines.append("## 2. Baseline vs Concurrent Design")
-    lines.append("- Baseline (near single-thread): `scan_pool_num_threads=1`, `fd_pool_num_threads=1`, `max_concurrent_scan=1`")
-    lines.append("- Concurrent profiles: current config and worker profiles `2/4/8/10`.")
+    lines.append("- Baseline (near single-thread):  `max_concurrent_scan=1`, `scan_pool_num_threads=1`, `fd_pool_num_threads=1`")
+    lines.append("- Concurrent profiles: current config and worker profiles .")
     lines.append("")
 
     lines.append("## 3. Measured Metrics")
@@ -193,9 +179,6 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("- Backpressure: HTTP 429 count under overload.")
     lines.append("- Timeout(-1): client did not receive response (network/transport level).")
     lines.append("- Resource usage: process CPU (`avg`, `p95`) and RSS memory peak (MB).")
-    lines.append("- Store mode (`store`):")
-    lines.append("  - `store=true`: keep exported result/index files under each profile `exports/` directory.")
-    lines.append("  - `store=false`: benchmark removes `exports/` directory after setup, so export files are not kept and DOES NOT export I/O at all.")
     lines.append("- Per-profile/raw metrics are available in `results.json` for deeper analysis.")
     lines.append("")
 
@@ -213,11 +196,33 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("- Multi-level bounded queues with 429 backpressure (no unbounded acceptance).")
     lines.append("- Scheduler enforces max concurrent scan ceiling; scan job queue enforces worker-level backpressure.")
     lines.append("- Graceful cancel: PENDING -> DROPPED, RUNNING -> CANCELED via shared context flag.")
-    lines.append("- Drain/shutdown path converges cleanly under active load.")
     lines.append("- Realtime observability: `/metrics` exposes queue depths, running counts, enqueue-reject and request-failed deltas.")
+    
     lines.append("")
 
-    lines.append("## 6. Summary Table")
+    def profile_sort_key(r: Dict):
+        profile = str(r.get("profile", ""))
+        if profile == "baseline_single":
+            return (0, 0, profile)
+        prefix = "concurrent_"
+        if profile.startswith(prefix):
+            suffix = profile[len(prefix):]
+            if suffix.isdigit():
+                return (1, as_int(suffix, 0), profile)
+        if profile == "concurrent_current":
+            return (2, 0, profile)
+        return (3, 0, profile)
+
+    def scenario_rows(scenario_name: str) -> List[Dict]:
+        if scenario_name == "cancel_flow":
+            filtered = [r for r in rows if r.get("scenario") == "cancel_flow" or r.get("scenario_type") == "cancel"]
+        else:
+            filtered = [r for r in rows if r.get("scenario") == scenario_name]
+        return sorted(filtered, key=profile_sort_key)
+
+
+
+    lines.append("## 6. Results")
     lines.append("")
     lines.append(
         "| Profile | Scenario | Config | Latency Avg(s) | Latency P95(s) | Throughput (/min) | Expect_Scanned Size(entries) | Req_Total | Done | Reject (429) (cancel:409) | Timeout (-1) | CPU avg(%) | CPU p95(%) | RSS peak(MB) |"
@@ -226,7 +231,7 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
 
     for r in rows:
         scenario = r.get("scenario", "")
-        cfg = f"{r.get('scan_pool_num_threads','?')}/{r.get('fd_pool_num_threads','?')}/{r.get('max_concurrent_scan','?')}"
+        cfg = f"{r.get('max_concurrent_scan','?')}/{r.get('scan_pool_num_threads','?')}/{r.get('fd_pool_num_threads','?')}"
         avg = as_float(r.get("avg_latency_sec", 0), 0.0)
         p95 = as_float(r.get("p95_latency_sec", 0), 0.0)
         tp = as_float(r.get("throughput_per_min", r.get("throughput_scan_per_min", 0)), 0.0)
@@ -261,24 +266,103 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
         )
 
     lines.append("")
-    lines.append("## Speedup vs Baseline (single_big_scan)")
-    baseline = None
-    for r in rows:
-        if r.get("profile") == "baseline_single" and r.get("scenario") == "single_big_scan":
-            baseline = as_float(r.get("elapsed_sec", 0), 0)
+
+    lines.append("## 7. Key Metric Comparisons by Scenario")
+    lines.append("")
+
+    single_rows = scenario_rows("single_big_scan")
+    baseline_latency = 0.0
+    for r in single_rows:
+        if r.get("profile") == "baseline_single":
+            baseline_latency = as_float(r.get("avg_latency_sec", 0), 0.0)
             break
 
-    if baseline and baseline > 0:
-        lines.append("| Profile | elapsed (s) | Speedup |")
-        lines.append("|---|---:|---:|")
-        for r in rows:
-            if r.get("scenario") != "single_big_scan":
-                continue
-            elapsed = as_float(r.get("elapsed_sec", 0), 0)
-            speedup = (baseline / elapsed) if elapsed > 0 else 0.0
-            lines.append(f"| {r.get('profile','')} | {elapsed:.4f} | {speedup:.3f}x |")
-    else:
-        lines.append("Baseline single_big_scan row not found; speedup table skipped.")
+    lines.append("### single_big_scan — Speedup vs Baseline")
+    lines.append("")
+    lines.append("Scenario goal: measure scan-path parallelization efficiency under fixed work by comparing effective scan rate against the single-thread baseline.")
+    lines.append("")
+    lines.append("| Profile | latency (s) | Speedup |")
+    lines.append("|---|---:|---:|")
+    for r in single_rows:
+        latency = as_float(r.get("avg_latency_sec", 0), 0.0)
+        speedup_text = "n/a"
+        if baseline_latency > 0 and latency > 0:
+            speedup_text = f"{(baseline_latency / latency):.3f}x"
+        lines.append(f"| {r.get('profile','')} | {latency:.4f} | {speedup_text} |")
+
+    lines.append("")
+    lines.append("")
+
+    burst_rows = scenario_rows("burst_submit")
+    burst_total = max([as_int(r.get("requests_total", 0), 0) for r in burst_rows], default=0)
+    burst_total_suffix = f", {burst_total} requests" if burst_total > 0 else ""
+    lines.append(f"#### burst_submit — Done Rate (Effective Capacity Under Burst{burst_total_suffix})")
+    lines.append("")
+    lines.append("Scenario goal: test effective capacity and protection behavior under sudden burst traffic (fixed-count concurrent submit).")
+    lines.append("")
+    lines.append("| Profile | Req Total | Reject 429 | Done | Done % | Throughput (/min) | Latency Avg (s) | Latency P95 (s) | CPU avg (%) | RSS peak (MB) |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in burst_rows:
+        req_total = as_int(r.get("requests_total", 0), 0)
+        reject_429 = as_int(r.get("status_429", 0), 0)
+        done = as_int(r.get("done", 0), 0)
+        done_pct = (done * 100.0 / req_total) if req_total > 0 else 0.0
+        tp = as_float(r.get("throughput_per_min", 0), 0.0)
+        avg = as_float(r.get("avg_latency_sec", 0), 0.0)
+        p95 = as_float(r.get("p95_latency_sec", 0), 0.0)
+        cpu_avg = as_float(r.get("cpu_avg_percent", 0), 0.0)
+        rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
+        lines.append(
+            f"| {r.get('profile','')} | {req_total} | {reject_429} | {done} | {done_pct:.1f}% | {tp:.3f} | {avg:.4f} | {p95:.4f} | {cpu_avg:.2f} | {rss_peak:.2f} |"
+        )
+
+    lines.append("")
+    lines.append("")
+
+    overload_rows = scenario_rows("overload_queue")
+    lines.append("#### overload_queue — Throughput vs Resource Cost")
+    lines.append("")
+    lines.append("Scenario goal: test stability under sustained pressure (time-window (20s) continuous submit), including whether the system rejects excess load instead of stalling.")
+    lines.append("")
+    lines.append("| Profile | Req Total | Done | Reject 429 | Timeout (-1) | Throughput (/min) | CPU avg (%) | CPU p95 (%) | RSS Peak (MB) |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in overload_rows:
+        req_total = as_int(r.get("requests_total", 0), 0)
+        done = as_int(r.get("done", 0), 0)
+        reject_429 = as_int(r.get("status_429", 0), 0)
+        timeout_count = as_int(r.get("status_timeout", 0), 0)
+        tp = as_float(r.get("throughput_per_min", 0), 0.0)
+        cpu_avg = as_float(r.get("cpu_avg_percent", 0), 0.0)
+        cpu_p95 = as_float(r.get("cpu_p95_percent", 0), 0.0)
+        rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
+        lines.append(
+            f"| {r.get('profile','')} | {req_total} | {done} | {reject_429} | {timeout_count} | {tp:.3f} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |"
+        )
+
+    lines.append("")
+    lines.append("")
+    lines.append("---")
+    lines.append("")
+
+    cancel_table_rows = scenario_rows("cancel_flow")
+    lines.append("#### cancel_flow — Cancel Latency & Conflict Rate")
+    lines.append("")
+    lines.append("Scenario method: two-phase model. Phase 1 submits a batch of scans concurrently, then snapshots IDs still in `PENDING/RUNNING`; Phase 2 waits `cancel_delay_sec` and sends `POST /cancel` for that snapshot. This measures cancel latency and late-cancel conflict (`409`) when targets have already finished or left cancellable states before `POST /cancel`.")
+    lines.append("")
+    lines.append("| Profile | Req Total | 409 | DROPPED | CANCELED | DONE | Throughput (/min) | Latency Avg (ms) | Latency P95 (ms) |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    for r in cancel_table_rows:
+        req_total = as_int(r.get("requests_total", 0), 0)
+        status_409 = as_int(r.get("status_409", 0), 0)
+        dropped = as_int(r.get("dropped", 0), 0)
+        canceled = as_int(r.get("canceled", 0), 0)
+        done = as_int(r.get("done", 0), 0)
+        tp = as_float(r.get("throughput_per_min", 0), 0.0)
+        avg_ms = as_float(r.get("avg_latency_sec", 0), 0.0) * 1000.0
+        p95_ms = as_float(r.get("p95_latency_sec", 0), 0.0) * 1000.0
+        lines.append(
+            f"| {r.get('profile','')} | {req_total} | {status_409} | {dropped} | {canceled} | {done} | {tp:.3f} | {avg_ms:.1f} | {p95_ms:.1f} |"
+        )
 
     lines.append("")
     lines.append("## Notes")
@@ -286,4 +370,3 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("- Service stdout/stderr logs are stored per profile in this run directory.")
 
     return "\n".join(lines) + "\n"
-
