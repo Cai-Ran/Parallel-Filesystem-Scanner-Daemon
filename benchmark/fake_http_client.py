@@ -154,11 +154,6 @@ class HttpClient:
         (status, _) = self.post(f"/cancel?id={scan_id}")
         t = now_ts()
         return status, t
-
-    def post_export_dir(self, export_dir: str) -> int:
-        encoded = parse.quote(str(export_dir), safe="")
-        (status, _) = self.post(f"/export_dir?dir={encoded}")
-        return status
     
     # wait metrics reset (happens in system reset)
     def wait_metrics_reset(self, wait_timeout: float, poll_interval_sec: float) -> bool:
@@ -172,23 +167,27 @@ class HttpClient:
                 time.sleep(poll_interval_sec)
                 continue
 
-            scan_running = as_int(metrics.get("scan_running", 0), 0)
-            scan_pending = as_int(metrics.get("scan_pending", 0), 0)
-            scan_jobs_unfinished = as_int(metrics.get("scan_jobs_unfinished", 0), 0)
-            scan_jobs_queued = as_int(metrics.get("scan_jobs_queued", 0), 0)
-            request_jobs_queued = as_int(metrics.get("request_jobs_queued", 0), 0)
-            export_pending = as_int(metrics.get("export_pending", 0), 0)
-            export_running = as_int(metrics.get("export_running", 0), 0)
+            scan_running =          as_int(metrics.get("scan_running", 0), 0)
+            scan_pending =          as_int(metrics.get("scan_pending", 0), 0)
+            scan_jobs_unfinished =  as_int(metrics.get("scan_jobs_unfinished", 0), 0)
+            scan_jobs_queued =      as_int(metrics.get("scan_jobs_queued", 0), 0)
+            request_jobs_queued =   as_int(metrics.get("request_jobs_queued", 0), 0)
+            export_result_pending = as_int(metrics.get("export_result_pending", 0), 0)
+            export_result_running = as_int(metrics.get("export_result_running", 0), 0)
+            export_delete_pending = as_int(metrics.get("export_delete_pending", 0), 0)
+            export_delete_running = as_int(metrics.get("export_delete_running", 0), 0)
 
             # check metrics is reset 
             idle = (
-                scan_running == 0
-                and scan_pending == 0
-                and scan_jobs_unfinished == 0
-                and scan_jobs_queued == 0
-                and request_jobs_queued == 0
-                and export_pending == 0
-                and export_running == 0
+                    scan_running            == 0
+                and scan_pending            == 0
+                and scan_jobs_unfinished    == 0
+                and scan_jobs_queued        == 0
+                and request_jobs_queued     == 0
+                and export_result_pending   == 0
+                and export_result_running   == 0
+                and export_delete_pending   == 0
+                and export_delete_running   == 0
             )
 
             if idle:
@@ -245,6 +244,11 @@ class HttpClient:
                     ids_set.remove(scan_id)
 
             time.sleep(poll_interval_sec)
+
+        if ids_set:
+            print(f"[DEBUG] wait_final_states timeout, unfinished={list(ids_set)}")
+        else:
+            print(f"[DEBUG] wait_final_states done")
 
         return states, scan_cycle_end_times, list(ids_set)
 
