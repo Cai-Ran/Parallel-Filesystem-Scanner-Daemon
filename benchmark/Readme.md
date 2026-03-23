@@ -37,14 +37,12 @@ python3 benchmark/benchmark.py \
   --project-root . \
   --bench-config benchmark/bench_config.json \
   --base-config config.ini \
-  --runs-dir benchmark/runs \
-  --store false
+  --runs-dir benchmark/runs
 ```
 
 Key flags:
 - `--bench-config`: benchmark profiles/scenarios definition
 - `--runs-dir`: output root for benchmark runs
-- `--store`: `true` keeps exported scan files, `false` skips export I/O
 
 ---
 
@@ -55,17 +53,17 @@ Key flags:
 - `dataset` (generated filesystem size/shape)
 - `profiles` (thread/concurrency settings)
 - `scenarios` (traffic patterns)
-- `store`, `metrics_poll_interval_sec`, `cycle_timeout_sec`
+- `metrics_poll_interval_sec`, `cycle_timeout_sec`
 
 ---
 
 ## Baseline vs Concurrent Design
 
-Each profile is described by three parameters: `scan_pool_num_threads / fd_pool_num_threads / max_concurrent_scan`.
+Each profile is described by three parameters: `max_concurrent_scan / scan_pool_num_threads / fd_pool_num_threads`.
 
 - **Baseline** (`1/1/1`): near single-threaded — one scan worker, one fd worker, one scan allowed at a time. Used as the reference point for speedup calculation.
 - **`concurrent_current`**: the production-style config being tested, with asymmetric thread/concurrency settings.
-- **`concurrent_2/4/8/10`**: symmetric scaling profiles where all three parameters are set to the same value (e.g. `concurrent_8` = `8/8/8`). Used to observe how throughput and resource usage scale with worker count.
+- **`concurrent_2/3/4/8`**: symmetric scaling profiles where all scan parameters are set to the same value (e.g. `concurrent_2` = `2/2/16`). Used to observe how throughput and resource usage scale with worker count.
 
 ---
 
@@ -93,9 +91,6 @@ Each profile is described by three parameters: `scan_pool_num_threads / fd_pool_
 - **Backpressure**: HTTP 429 count under overload.
 - **Timeout (-1)**: client did not receive response (network/transport level).
 - **Resource usage**: process CPU (`avg`, `p95`) and RSS memory peak (MB).
-- **Store mode** (`store`):
-  - `store=true`: keep exported result/index files under each profile `exports/` directory.
-  - `store=false`: benchmark removes `exports/` directory after setup, so export files are not kept and does **not** exercise export I/O at all.
 - Per-profile/raw metrics are available in `results.json` for deeper analysis.
 
 ---
