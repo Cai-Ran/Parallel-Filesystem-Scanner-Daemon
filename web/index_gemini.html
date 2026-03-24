@@ -145,28 +145,171 @@
       transition: width 1s linear;
     }
 
-    /* Metrics Grid */
-    .metrics-section {
-      display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-      gap: 16px;
+    /* Grafana-like System Health */
+    .grafana-card {
+      background: #1f2126;
+      border-color: #3d4045;
+      box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.02);
     }
 
-    .metric-group h4 {
-      margin: 0 0 8px 0;
-      color: var(--text-muted);
-      font-size: 0.9em;
-      text-transform: uppercase;
-      border-bottom: 1px solid #333;
-    }
-
-    .metric-item {
+    .health-toolbar {
       display: flex;
       justify-content: space-between;
-      margin-bottom: 4px;
+      align-items: center;
+      margin-bottom: 12px;
+      font-size: 0.78em;
+      color: #8e8e8e;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
     }
 
-    .metric-item span:first-child { color: #888; }
+    .health-live {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .health-live::before {
+      content: '';
+      width: 8px;
+      height: 8px;
+      border-radius: 999px;
+      background: #73bf69;
+      box-shadow: 0 0 8px rgba(115, 191, 105, 0.8);
+    }
+
+    .health-grid {
+      display: grid;
+      grid-template-columns: repeat(5, minmax(0, 1fr));
+      gap: 10px;
+    }
+
+    .health-panel {
+      background: #181b1f;
+      border: 1px solid #2d3035;
+      border-radius: 8px;
+      padding: 12px;
+      min-height: 260px;
+    }
+
+    .health-panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 10px;
+      padding-bottom: 8px;
+      border-bottom: 1px solid #2d3035;
+    }
+
+    .health-panel-head h4 {
+      margin: 0;
+      font-size: 0.82em;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: #d9d9d9;
+      font-weight: 600;
+    }
+
+    .health-badge {
+      font-size: 0.66em;
+      font-weight: 700;
+      border-radius: 999px;
+      padding: 2px 8px;
+      border: 1px solid #454a50;
+      color: #8e8e8e;
+      background: #212327;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .health-badge.ok {
+      color: #73bf69;
+      border-color: rgba(115, 191, 105, 0.35);
+      background: rgba(115, 191, 105, 0.12);
+    }
+
+    .health-badge.warn {
+      color: #fade2a;
+      border-color: rgba(250, 222, 42, 0.35);
+      background: rgba(250, 222, 42, 0.12);
+    }
+
+    .health-badge.crit {
+      color: #f2495c;
+      border-color: rgba(242, 73, 92, 0.35);
+      background: rgba(242, 73, 92, 0.12);
+    }
+
+    .health-list {
+      display: grid;
+      gap: 7px;
+      font-size: 0.82em;
+    }
+
+    .health-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: baseline;
+      gap: 8px;
+      border-bottom: 1px dashed #2c2f34;
+      padding-bottom: 4px;
+    }
+
+    .health-row:last-child {
+      border-bottom: none;
+    }
+
+    .health-key {
+      color: #9ca3af;
+    }
+
+    .health-value {
+      color: #e5e7eb;
+      font-weight: 700;
+      font-variant-numeric: tabular-nums;
+    }
+
+    .health-meter {
+      margin-top: 10px;
+      height: 6px;
+      background: #2a2d32;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+
+    .health-meter-fill {
+      width: 0%;
+      height: 100%;
+      border-radius: 999px;
+      background: #5794f2;
+      transition: width 0.2s linear, background-color 0.2s linear;
+    }
+
+    .health-meter-fill.warn {
+      background: #fade2a;
+    }
+
+    .health-meter-fill.crit {
+      background: #f2495c;
+    }
+
+    @media (max-width: 1400px) {
+      .health-grid {
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 980px) {
+      .health-grid {
+        grid-template-columns: repeat(2, minmax(0, 1fr));
+      }
+    }
+
+    @media (max-width: 620px) {
+      .health-grid {
+        grid-template-columns: 1fr;
+      }
+    }
 
     /* Tables */
     .table-container { overflow-x: auto; }
@@ -199,21 +342,17 @@
         <div class="card-header"><h3 class="card-title">Operations</h3></div>
         <div class="control-group">
           <div class="input-row">
-            <input id="dir" placeholder="Export Directory Path" />
-            <button id="btnSetDir" class="btn-primary" onclick="set_dir()">Set Dir</button>
-          </div>
-          <div class="input-row">
             <input id="root" placeholder="Target Scan Path" />
             <button id="btnScan" class="btn-primary" onclick="scan()">Start Scan</button>
           </div>
-          <button id="btnIndex" class="btn-primary" onclick="indexReport()">Create System Index</button>
+          <button id="btnIndex" class="btn-primary" onclick="indexReport()">System Index Lookup</button>
         </div>
       </div>
 
       <!-- Message Card -->
       <div class="card">
         <div class="card-header"><h3 class="card-title">System Messages</h3></div>
-        <pre id="promptMsg">Please set export dir to start.</pre>
+        <pre id="promptMsg">Ready.</pre>
         <div id="progressContainer">
           <div id="progressBar"></div>
         </div>
@@ -221,70 +360,94 @@
     </div>
 
     <!-- Metrics Card -->
-    <div class="card">
+    <div class="card grafana-card">
       <div class="card-header"><h3 class="card-title">System Health</h3></div>
-      <div class="table-container">
-        <table style="font-size: 1.1em;">
-          <thead>
-            <tr>
-              <th>Scheduler</th>
-              <th>ScanManager</th>
-              <th>HttpServer</th>
-              <th>ExportManager</th>
-              <th>Logger</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:1.0em; letter-spacing:1px;">SYSTEM SETTINGS</th></tr>
-            <tr>
-              <td>concurrency: <span id="m_const_scan_max_concurrent_number">-</span></td>
-              <td>job_threads: <span id="m_const_scan_job_pool_num_threads">-</span></td>
-              <td>fd_threads: <span id="m_const_request_pool_num_threads">-</span></td>
-              <td>-</td>
-              <td>log_queue: <span id="m_const_logger_pending_queue_size">-</span></td>
-            </tr>
-            <tr>
-              <td>scan_queue: <span id="m_const_scan_pending_queue_size">-</span></td>
-              <td>job_queue: <span id="m_const_scan_job_queue_size">-</span></td>
-              <td>fd_queue: <span id="m_const_request_queue_size">-</span></td>
-              <td>-</td>
-              <td>-</td>
-            </tr>
-            <tr><th colspan="5" style="text-align:center; background:#2a2a2a; color:#888; font-size:1.0em; letter-spacing:1px;">STATUS</th></tr>
-            <tr>
-              <td>pending: <span id="m_scan_pending">-</span></td>
-              <td>jobs_unfinished: <span id="m_scan_jobs_unfinished">-</span></td>
-              <td>fd_submitted: <span id="m_request_jobs_submitted">-</span></td>
-              <td>exp_pending: <span id="m_export_pending">-</span></td>
-              <td>log_pending: <span id="m_logger_pending">-</span></td>
-            </tr>
-            <tr>
-              <td>running: <span id="m_scan_running">-</span></td>
-              <td>jobs_submitted: <span id="m_scan_jobs_submitted">-</span></td>
-              <td>fd_rejected: <span id="m_request_jobs_failed">-</span></td>
-              <td>exp_running: <span id="m_export_running">-</span></td>
-              <td>log_finished: <span id="m_logger_finished">-</span></td>
-            </tr>
-            <tr>
-              <td>-</td>
-              <td>jobs_rejected: <span id="m_scan_jobs_enqueue_reject">-</span></td>
-              <td>fd_queued: <span id="m_request_jobs_queued">-</span></td>
-              <td>exp_finished: <span id="m_export_finished">-</span></td>
-              <td>log_fallback: <span id="m_logger_fallback">-</span></td>
-            </tr>
-            <tr>
-              <td>-</td>
-              <td>jobs_queued: <span id="m_scan_jobs_queued">-</span></td>
-              <td>-</td>
-              <td>-</td>
-              <td>-</td>
-            </tr>
-          </tbody>
-        </table>
+      <div class="health-toolbar">
+        <span class="health-live">Live Metrics</span>
+        <span>updated <span id="healthUpdatedAt">-</span></span>
+      </div>
+      <div class="health-grid">
+        <section class="health-panel">
+          <div class="health-panel-head">
+            <h4>Scheduler</h4>
+            <span id="hb_scheduler" class="health-badge">idle</span>
+          </div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">concurrency</span><span id="m_const_scan_max_concurrent_number" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">scan_queue</span><span id="m_const_scan_pending_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">pending</span><span id="m_scan_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">running</span><span id="m_scan_running" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_scheduler" class="health-meter-fill"></div></div>
+        </section>
+
+        <section class="health-panel">
+          <div class="health-panel-head">
+            <h4>ScanManager</h4>
+            <span id="hb_scan_manager" class="health-badge">idle</span>
+          </div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">job_threads</span><span id="m_const_scan_job_pool_num_threads" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">job_queue</span><span id="m_const_scan_job_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">jobs_unfinished</span><span id="m_scan_jobs_unfinished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">jobs_submitted</span><span id="m_scan_jobs_submitted" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">jobs_rejected</span><span id="m_scan_jobs_enqueue_reject" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">jobs_queued</span><span id="m_scan_jobs_queued" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_scan_manager" class="health-meter-fill"></div></div>
+        </section>
+
+        <section class="health-panel">
+          <div class="health-panel-head">
+            <h4>HttpServer</h4>
+            <span id="hb_http_server" class="health-badge">idle</span>
+          </div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">fd_threads</span><span id="m_const_request_pool_num_threads" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_queue</span><span id="m_const_request_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_submitted</span><span id="m_request_jobs_submitted" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_rejected</span><span id="m_request_jobs_failed" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_queued</span><span id="m_request_jobs_queued" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_http_server" class="health-meter-fill"></div></div>
+        </section>
+
+        <section class="health-panel">
+          <div class="health-panel-head">
+            <h4>ExportManager</h4>
+            <span id="hb_export_manager" class="health-badge">idle</span>
+          </div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">export_que_pending</span><span id="m_export_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">export_que_running</span><span id="m_export_running" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">export_que_finished</span><span id="m_export_finished" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_export_que" class="health-meter-fill"></div></div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">delete_que_pending</span><span id="m_export_delete_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">delete_que_running</span><span id="m_export_delete_running" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">delete_que_finished</span><span id="m_export_delete_finished" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_delete_que" class="health-meter-fill"></div></div>
+        </section>
+
+        <section class="health-panel">
+          <div class="health-panel-head">
+            <h4>Logger</h4>
+            <span id="hb_logger" class="health-badge">idle</span>
+          </div>
+          <div class="health-list">
+            <div class="health-row"><span class="health-key">log_queue</span><span id="m_const_logger_pending_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">log_pending</span><span id="m_logger_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">log_finished</span><span id="m_logger_finished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">log_fallback</span><span id="m_logger_fallback" class="health-value">-</span></div>
+          </div>
+          <div class="health-meter"><div id="hm_logger" class="health-meter-fill"></div></div>
+        </section>
       </div>
     </div>
 
-    <div class="grid-2" style="grid-template-columns: 2.5fr 1fr;">
+    <div>
       <!-- Scans Table -->
       <div class="card">
         <div class="card-header"><h3 class="card-title">Active Scans</h3></div>
@@ -304,19 +467,6 @@
           </table>
         </div>
       </div>
-
-      <!-- Index History -->
-      <div class="card">
-        <div class="card-header"><h3 class="card-title">Index History</h3></div>
-        <div class="table-container">
-          <table id="indexTable">
-            <thead>
-              <tr><th>Time</th><th>Snapshot</th></tr>
-            </thead>
-            <tbody id="indexTableRows"></tbody>
-          </table>
-        </div>
-      </div>
     </div>
   </div>
 
@@ -324,13 +474,16 @@
 // ==========================================
 // Logic from index.html
 // ==========================================
-var indexHistoryMap = {};
 var scanItems = [];
+var scanItemMap = {};
 var scanSeq = 0;
+var scanHistoryApiAvailable = true;
+var scanHistoryApiWarned = false;
+var scanHistoryPage = 1;
+var scanHistoryLimit = 500;
 
 var pollTimer = null;
 var serverOffline = false;
-var exportDirSet = false;
 var pollInFlight = false;
 var pollIntervalMs = 1500;
 var pollIntervalIdleMs = 10000;
@@ -346,11 +499,27 @@ var m_scan_pending = 0;
 var downloadTimeSec = 0;
 var countdownStarted = false;
 var countdownTimer = null;
+var indexCooldownMs = 10000;
+var indexLockUntilMs = 0;
+var indexLockTimer = null;
+
+function startIndexCooldown() {
+  indexLockUntilMs = Date.now() + indexCooldownMs;
+  var btn = document.getElementById('btnIndex');
+  if (btn) btn.disabled = true;
+
+  if (indexLockTimer) clearTimeout(indexLockTimer);
+  indexLockTimer = setTimeout(function () {
+    if (Date.now() >= indexLockUntilMs && !serverOffline) {
+      var indexBtn = document.getElementById('btnIndex');
+      if (indexBtn) indexBtn.disabled = false;
+    }
+  }, indexCooldownMs + 50);
+}
 
 // --- API Calls ---
 async function scan() {
   if (scanSubmitting || scanBlockedBy429 || serverOffline) return;
-  if (!exportDirSet) { promptMsg('Please set export dir first.'); return; }
   
   var root = document.getElementById('root').value || '';
   scanSubmitting = true;
@@ -360,6 +529,7 @@ async function scan() {
     var res = await fetch('/scan?root=' + encodeURIComponent(root), { method: 'POST' });
     if (!res.ok) {
       if (res.status == 503) { promptMsg('Server shutdown'); return; }
+      if (res.status == 409) { promptMsg('Entered path is under scan'); return; }
       if (res.status == 429 || res.status == 400) {
         if (res.status == 429) {
           scanBlockedBy429 = true;
@@ -377,23 +547,6 @@ async function scan() {
     setPollingInterval(1000);
   } catch (e) { console.error(e); }
   finally { scanSubmitting = false; updateScanButtonState(); }
-}
-
-async function set_dir() {
-  if (serverOffline) return;
-  var dir = document.getElementById('dir').value || '';
-  try {
-    var res = await fetch('/export_dir?dir=' + encodeURIComponent(dir), { method: 'POST' });
-    if (!res.ok) {
-      var msg = 'Set export dir failed: ' + res.status;
-      try { var err = await res.json(); if (err && err.error) msg = err.error; } catch (_) {}
-      promptMsg(msg);
-      return;
-    }
-    exportDirSet = true;
-    setActionButtonsEnabled(true);
-    promptMsg('Export dir set. You can now scan.');
-  } catch (e) { console.error(e); }
 }
 
 async function cancelScan(id) {
@@ -428,34 +581,88 @@ async function cancelScan(id) {
 
 async function exportResult(id) {
   try {
-    var res = await fetch('/export_summary?id=' + encodeURIComponent(id));
-    if (!res.ok) { promptMsg('Export failed: ' + res.status); return; }
-    var html = await res.text();
-    var win = window.open('', '_blank');
-    if (win) { win.document.write(html); win.document.close(); }
-    else { promptMsg('Popup blocked.'); }
+    var initialState = 'ALL';
+    var initialPage = 1;
+    var pageSize = 50;
+    var detailUrl = '/scan_diff_detail?id=' + encodeURIComponent(id)
+      + '&state=' + encodeURIComponent(initialState)
+      + '&page=' + encodeURIComponent(initialPage)
+      + '&limit=' + encodeURIComponent(pageSize);
+
+    var responses = await Promise.all([
+      fetch('/scan_diff_summary?id=' + encodeURIComponent(id)),
+      fetch(detailUrl)
+    ]);
+
+    var summaryRes = responses[0];
+    var detailRes = responses[1];
+    if (!summaryRes.ok) { promptMsg('Get summary failed: ' + summaryRes.status); return; }
+    if (!detailRes.ok) { promptMsg('Get detail failed: ' + detailRes.status); return; }
+
+    var payloads = await Promise.all([summaryRes.json(), detailRes.json()]);
+    var summaryJson = payloads[0];
+    var detailJson = payloads[1];
+
+    var html = buildScanDiffHtml(
+      summaryJson,
+      detailJson.items || [],
+      pageSize,
+      initialPage,
+      initialState
+    );
+    openHtmlWindow(html);
   } catch (e) { console.error(e); }
 }
 
 async function indexReport() {
-  if (serverOffline || !exportDirSet) return;
+  if (serverOffline) return;
+  if (Date.now() < indexLockUntilMs) return;
+  startIndexCooldown();
   try {
-    var res = await fetch('/index', { method: 'POST' });
-    if (res.status == 204) { promptMsg('Index is empty'); return; }
-    if (!res.ok) { promptMsg('Index report failed.'); return; }
-    var json = await res.json();
-    var inserted = insertIndexMap(json.version, json.timestamp);
-    promptMsg((inserted ? 'Index updated.' : 'Index unchanged.'));
-  } catch (e) { console.error(e); }
-}
+    var pageSize = 5;
+    var initialPage = 1;
+    var initialSearch = '/';
 
-async function indexResult(version) {
-  try {
-    var res = await fetch('/index_summary?id=' + encodeURIComponent(version));
-    if (!res.ok) { promptMsg('Get index failed'); return; }
-    var html = await res.text();
-    var win = window.open('', '_blank');
-    if (win) { win.document.write(html); win.document.close(); }
+    var responses = await Promise.all([
+      fetch('/index_summary?type=folder'),
+      fetch('/index_summary?type=extension'),
+      fetch('/index_detail?search=' + encodeURIComponent(initialSearch)
+        + '&page=' + encodeURIComponent(initialPage)
+        + '&limit=' + encodeURIComponent(pageSize))
+    ]);
+    var folderRes = responses[0];
+    var extensionRes = responses[1];
+    var detailRes = responses[2];
+    if (!folderRes.ok || !extensionRes.ok || !detailRes.ok) {
+      promptMsg('Index summary failed.');
+      return;
+    }
+
+    var payloads = await Promise.all([folderRes.json(), extensionRes.json(), detailRes.json()]);
+    var folderSummary = payloads[0];
+    var extensionSummary = payloads[1];
+    var detailPayload = payloads[2];
+    var initialItems = Array.isArray(detailPayload && detailPayload.items) ? detailPayload.items : [];
+
+    // // Backend search is path-prefix based; "/" usually returns no usable rows.
+    // // If caller didn't provide a root and first detail page is empty, retry with DB top root.
+    // if (!rootInputSearch && initialItems.length === 0) {
+    //   var topRoot = String((folderSummary && folderSummary.root_directory) || '').trim();
+    //   if (topRoot) {
+    //     var fallbackRes = await fetch('/index_detail?search=' + encodeURIComponent(topRoot)
+    //       + '&page=' + encodeURIComponent(initialPage)
+    //       + '&limit=' + encodeURIComponent(pageSize));
+    //     if (fallbackRes.ok) {
+    //       var fallbackJson = await fallbackRes.json();
+    //       initialItems = Array.isArray(fallbackJson && fallbackJson.items) ? fallbackJson.items : [];
+    //       initialSearch = topRoot;
+    //     }
+    //   }
+    // }
+
+    var html = buildIndexSummaryHtml(folderSummary, extensionSummary, initialItems, initialSearch, pageSize, initialPage);
+    promptMsg('Index summary loaded.');
+    openHtmlWindow(html);
   } catch (e) { console.error(e); }
 }
 
@@ -464,8 +671,6 @@ async function shutdown() {
   try { await fetch('/shutdown', { method: 'POST' }); } catch (e) {}
   serverOffline = true;
   setActionButtonsEnabled(false);
-  document.getElementById('dir').disabled = true;
-  document.getElementById('btnSetDir').disabled = true;
 
   var hasExporting = scanItems.some(item => item.export_state !== 'Exported');
 
@@ -542,15 +747,23 @@ async function metrics() {
     Object.keys(json).forEach(k => {
       if (!k.startsWith('const_')) setText('m_' + k, json[k]);
     });
+    // UI IDs are still m_export_pending/m_export_running/m_export_finished.
+    setText('m_export_pending', json.export_result_pending ?? json.export_pending ?? 0);
+    setText('m_export_running', json.export_result_running ?? json.export_running ?? 0);
+    setText('m_export_finished', json.export_result_finished ?? json.export_finished ?? 0);
+    updateHealthPanels(json);
     
     mayUnblockScan();
 
     if (serverOffline && !countdownStarted &&
         m_scan_running === 0 &&
         m_scan_pending === 0 &&
-        (json.scan_jobs_unfinished ?? 0) === 0 &&
-        (json.export_pending ?? 0) === 0 &&
-        (json.export_running ?? 0) === 0) {
+        (json.scan_jobs_unfinished) === 0 &&
+        (json.export_result_pending) === 0 &&
+        (json.export_result_running) === 0 &&
+        (json.export_delete_pending) === 0 &&
+        (json.export_delete_running) === 0) 
+    {
       startCountdown();
     }
   } catch (e) {}
@@ -567,45 +780,140 @@ function mayUnblockScan() {
 }
 
 // --- Helpers & Polling ---
-function insertScan(root, id) {
-  scanItems.push({
+function getOrCreateScanItem(id) {
+  var key = String(id);
+  if (scanItemMap[key]) return scanItemMap[key];
+
+  var item = {
     seq: scanSeq++,
-    id: id,
-    root: root,
+    id: Number(id),
+    root: '',
     state: 'PENDING',
-    export_state: 'Unavailable',
+    export_state: 'Exporting',
     time: formatTime(new Date()),
-    canceling: false
-  });
-  startPolling();
+    sort_ms: Date.now(),
+    canceling: false,
+    from_db: false
+  };
+  scanItemMap[key] = item;
+  scanItems.push(item);
+  return item;
+}
+
+function insertScan(root, id) {
+  var item = getOrCreateScanItem(id);
+  item.root = root || item.root;
+  item.state = 'PENDING';
+  item.export_state = 'Exporting';
+  item.time = formatTime(new Date());
+  item.sort_ms = Date.now();
+  item.canceling = false;
+  item.from_db = false;
   renderScans();
+}
+
+function applyHistoryRow(row) {
+  var id = Number(row && row.scan_id);
+  if (!Number.isFinite(id) || id <= 0) return;
+
+  var item = getOrCreateScanItem(id);
+  item.from_db = true;
+  item.canceling = false;
+  item.root = row.submit_root || item.root;
+
+  var startSec = Number(row.start_time) || 0;
+  if (startSec > 0) {
+    item.time = formatTime(new Date(startSec * 1000));
+    item.sort_ms = startSec * 1000;
+  }
+
+  var endState = String((row && row.end_state) || '').toUpperCase();
+  if (['DONE', 'CANCELED', 'FAILED', 'DROPPED'].includes(endState)) {
+    item.state = endState;
+  } else {
+    item.state = 'DONE';
+  }
+  item.export_state = 'Exported';
+}
+
+async function syncScansFromHistory() {
+  if (!scanHistoryApiAvailable) return false;
+  var loadedAny = false;
+  var page = scanHistoryPage;
+  var limit = scanHistoryLimit;
+
+  try {
+    while (true) {
+      var url = '/scans_history?page=' + encodeURIComponent(page) + '&limit=' + encodeURIComponent(limit);
+      var res = await fetch(url);
+      if (!res.ok) {
+        if (res.status === 404 || res.status === 400) scanHistoryApiAvailable = false;
+        if (!scanHistoryApiWarned) {
+          scanHistoryApiWarned = true;
+          promptMsg('Scan history API unavailable: ' + res.status);
+        }
+        return loadedAny;
+      }
+
+      var json = await res.json();
+      var items = Array.isArray(json && json.items) ? json.items : [];
+      if (items.length === 0) break;
+
+      loadedAny = true;
+      for (var i = 0; i < items.length; i++) applyHistoryRow(items[i]);
+
+      if (items.length < limit) break;
+      page++;
+    }
+
+    return loadedAny;
+  } catch (e) {
+    return loadedAny;
+  }
 }
 
 function updateScanMap(id, state, export_state) {
   var changed = false;
-  for (var i = 0; i < scanItems.length; i++) {
-    var item = scanItems[i];
-    if (item.id == id) {
-      if (state && item.state !== state) { item.state = state; changed = true; }
-      if (export_state && item.export_state !== export_state) { item.export_state = export_state; changed = true; }
-      if (item.canceling && ['DONE','CANCELED','FAILED','DROPPED'].includes(state)) { item.canceling = false; changed = true; }
+  var item = findScanItemById(id);
+  if (!item) return false;
+  if (state && item.state !== state) {
+    item.state = state;
+    changed = true;
+    if ((state === 'FAILED' || state === 'DROPPED') && item.export_state !== 'Unavailable') {
+      item.export_state = 'Unavailable';
+      changed = true;
     }
   }
+  if (export_state && item.state !== 'FAILED' && item.state !== 'DROPPED' && item.export_state !== export_state) {
+    item.export_state = export_state;
+    changed = true;
+  }
+  if (item.canceling && ['DONE','CANCELED','FAILED','DROPPED'].includes(state)) { item.canceling = false; changed = true; }
+  if (export_state === 'Exported') item.from_db = true;
   return changed;
 }
 
 async function pollTask() {
-  if (pausePoll || pollInFlight || !exportDirSet) return;
+  if (pausePoll || pollInFlight) return;
   pollInFlight = true;
   try {
-    // await metrics();
+    await metrics();
+    var updated = false;
+
     var sIds = [], eIds = [];
     scanItems.forEach(item => {
+      if (item.state === 'FAILED' || item.state === 'DROPPED') {
+        if (item.export_state !== 'Unavailable') {
+          item.export_state = 'Unavailable';
+          updated = true;
+        }
+        return;
+      }
+      if (item.export_state === 'Exported') return;
       if (['PENDING','RUNNING'].includes(item.state)) sIds.push(item.id);
-      if (['DONE','CANCELED','FAILED'].includes(item.state) && item.export_state !== 'Exported') eIds.push(item.id);
+      if (['DONE','CANCELED'].includes(item.state)) eIds.push(item.id);
     });
 
-    var updated = false;
     var batchSize = 50;
     if (sIds.length > 0) {
       for (var i = 0; i < sIds.length; i += batchSize) {
@@ -643,17 +951,7 @@ function setPollingInterval(ms) {
 }
 
 
-var DISPLAY_TIME_START = new Date('2026-03-15T13:24:09');
-var REAL_TIME_START = new Date();
-var DISPLAY_TIME_OFFSET = DISPLAY_TIME_START.getTime() - REAL_TIME_START.getTime();
-
-function toDisplayTime(d) {
-  return new Date(d.getTime() + DISPLAY_TIME_OFFSET);
-}
-
-
 function formatTime(d) {
-  d = toDisplayTime(d);
   var p = n => String(n).padStart(2, '0');
   return `${d.getFullYear()}-${p(d.getMonth()+1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
@@ -668,8 +966,155 @@ function formatTime(d) {
 function promptMsg(msg) { document.getElementById('promptMsg').textContent = typeof msg === 'string' ? msg : JSON.stringify(msg); }
 function setText(id, v) { var el = document.getElementById(id); if (el) el.textContent = v ?? '-'; }
 
+function toNum(v) {
+  var n = Number(v);
+  return Number.isFinite(n) ? n : 0;
+}
+
+function clamp01(v) {
+  if (v < 0) return 0;
+  if (v > 1) return 1;
+  return v;
+}
+
+function setHealthBadge(id, label, level) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  el.textContent = label;
+  el.className = 'health-badge';
+  if (level) el.classList.add(level);
+}
+
+function setHealthMeter(id, ratio, level, keepVisible) {
+  var el = document.getElementById(id);
+  if (!el) return;
+  var pct = Math.ceil(clamp01(ratio) * 100);
+  if (keepVisible && pct === 0) pct = 1;
+  el.style.width = pct + '%';
+  el.className = 'health-meter-fill';
+  if (level === 'warn' || level === 'crit') el.classList.add(level);
+}
+
+function updateHealthPanels(json) {
+  setText('healthUpdatedAt', formatTime(new Date()));
+
+  var schedulerQueueCap = toNum(json.const_scan_pending_queue_size);
+  var schedulerRunCap = toNum(json.const_scan_max_concurrent_number);
+  var schedulerPending = toNum(json.scan_pending);
+  var schedulerRunning = toNum(json.scan_running);
+
+  var schedulerQueueRatio = schedulerQueueCap > 0 ? schedulerPending / schedulerQueueCap : 0;
+  var schedulerRunRatio = schedulerRunCap > 0 ? schedulerRunning / schedulerRunCap : 0;
+  var schedulerRatio = Math.max(schedulerQueueRatio, schedulerRunRatio);
+  var schedulerLevel = 'ok';
+  var schedulerLabel = 'active';
+  if (schedulerPending === 0 && schedulerRunning === 0) {
+    schedulerLabel = 'idle';
+  } else if (schedulerRatio >= 0.95) {
+    schedulerLabel = 'critical';
+    schedulerLevel = 'crit';
+  } else if (schedulerRatio >= 0.65) {
+    schedulerLabel = 'warning';
+    schedulerLevel = 'warn';
+  }
+  setHealthBadge('hb_scheduler', schedulerLabel, schedulerLevel);
+  setHealthMeter('hm_scheduler', schedulerRatio, schedulerLevel, (schedulerPending + schedulerRunning) > 0);
+
+  var scanQueueCap = toNum(json.const_scan_job_queue_size);
+  var scanUnfinished = toNum(json.scan_jobs_unfinished);
+  var scanQueued = toNum(json.scan_jobs_queued);
+  var scanRejected = toNum(json.scan_jobs_enqueue_reject);
+  var scanRatio = scanQueueCap > 0 ? scanUnfinished / scanQueueCap : 0;
+  var scanLevel = 'ok';
+  var scanLabel = scanUnfinished === 0 ? 'idle' : 'active';
+  if (scanRejected > 0 || scanRatio >= 0.95) {
+    scanLabel = 'critical';
+    scanLevel = 'crit';
+  } else if (scanRatio >= 0.65) {
+    scanLabel = 'warning';
+    scanLevel = 'warn';
+  }
+  setHealthBadge('hb_scan_manager', scanLabel, scanLevel);
+  setHealthMeter('hm_scan_manager', scanRatio, scanLevel, (scanUnfinished + scanQueued) > 0);
+
+  var reqQueueCap = toNum(json.const_request_queue_size);
+  var reqQueued = toNum(json.request_jobs_queued);
+  var reqFailed = toNum(json.request_jobs_failed);
+  var reqRatio = reqQueueCap > 0 ? reqQueued / reqQueueCap : 0;
+  var reqLevel = 'ok';
+  var reqLabel = reqQueued === 0 ? 'idle' : 'active';
+  if (reqFailed > 0 || reqRatio >= 0.95) {
+    reqLabel = 'critical';
+    reqLevel = 'crit';
+  } else if (reqRatio >= 0.65) {
+    reqLabel = 'warning';
+    reqLevel = 'warn';
+  }
+  setHealthBadge('hb_http_server', reqLabel, reqLevel);
+  setHealthMeter('hm_http_server', reqRatio, reqLevel, reqQueued > 0);
+
+  var expPending = toNum(json.export_result_pending ?? json.export_pending);
+  var expRunning = toNum(json.export_result_running ?? json.export_running);
+  var delPending = toNum(json.export_delete_pending);
+  var delRunning = toNum(json.export_delete_running);
+  var expCap = toNum(json.const_result_que_size);
+  var delCap = toNum(json.const_delete_que_size);
+  var expInflight = expPending + expRunning;
+  var delInflight = delPending + delRunning;
+  var expRatio = expCap > 0 ? expInflight / expCap : 0;
+  var delRatio = delCap > 0 ? delInflight / delCap : 0;
+  var expLevel = 'ok';
+  var expLabel = expInflight === 0 ? 'idle' : 'active';
+  if (expRatio >= 0.95) {
+    expLabel = 'critical';
+    expLevel = 'crit';
+  } else if (expRatio >= 0.65) {
+    expLabel = 'warning';
+    expLevel = 'warn';
+  }
+  var delLevel = 'ok';
+  var delLabel = delInflight === 0 ? 'idle' : 'active';
+  if (delRatio >= 0.95) {
+    delLabel = 'critical';
+    delLevel = 'crit';
+  } else if (delRatio >= 0.65) {
+    delLabel = 'warning';
+    delLevel = 'warn';
+  }
+
+  var exportLabel = (expInflight + delInflight) === 0 ? 'idle' : 'active';
+  var exportLevel = 'ok';
+  if (expLevel === 'crit' || delLevel === 'crit') {
+    exportLabel = 'critical';
+    exportLevel = 'crit';
+  } else if (expLevel === 'warn' || delLevel === 'warn') {
+    exportLabel = 'warning';
+    exportLevel = 'warn';
+  }
+  setHealthBadge('hb_export_manager', exportLabel, exportLevel);
+  setHealthMeter('hm_export_que', expRatio, expLevel, expInflight > 0);
+  setHealthMeter('hm_delete_que', delRatio, delLevel, delInflight > 0);
+
+
+  var logQueueCap = toNum(json.const_logger_pending_queue_size);
+  var logPending = toNum(json.logger_pending);
+  var logFallback = toNum(json.logger_fallback);
+  var logRatio = logQueueCap > 0 ? logPending / logQueueCap : 0;
+  var logLevel = 'ok';
+  var logLabel = logPending === 0 ? 'idle' : 'active';
+  if (logFallback > 0 || logRatio >= 0.95) {
+    logLabel = 'critical';
+    logLevel = 'crit';
+  } else if (logRatio >= 0.65) {
+    logLabel = 'warning';
+    logLevel = 'warn';
+  }
+  setHealthBadge('hb_logger', logLabel, logLevel);
+  setHealthMeter('hm_logger', logRatio, logLevel, logPending > 0);
+}
+
 function updateScanButtonState() {
-  var disabled = !exportDirSet || serverOffline || scanSubmitting || scanBlockedBy429;
+  var disabled = serverOffline || scanSubmitting || scanBlockedBy429;
   document.getElementById('root').disabled = disabled;
   var btn = document.getElementById('btnScan');
   btn.disabled = disabled;
@@ -679,19 +1124,641 @@ function updateScanButtonState() {
 function setActionButtonsEnabled(enabled) {
   document.getElementById('root').disabled = !enabled;
   document.getElementById('btnScan').disabled = !enabled;
-  document.getElementById('btnIndex').disabled = !enabled;
+  document.getElementById('btnIndex').disabled = !enabled || Date.now() < indexLockUntilMs;
   if (enabled) updateScanButtonState();
-  renderScans(); renderIndexHistory();
-}
-
-function insertIndexMap(id, ts) {
-  if (indexHistoryMap[id]) return false;
-  indexHistoryMap[id] = { time: formatTime(new Date(ts * 1000)) };
-  renderIndexHistory(); return true;
+  renderScans();
 }
 
 function findScanItemById(id) {
-  return scanItems.find(it => it.id == id);
+  return scanItemMap[String(id)] || null;
+}
+
+function escapeHtml(v) {
+  return String(v ?? '')
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#39;');
+}
+
+function formatBytes(n) {
+  var num = Number(n) || 0;
+  if (num < 1024) return num + ' B';
+  var units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+  var i = -1;
+  while (num >= 1024 && i < units.length - 1) {
+    num /= 1024;
+    i++;
+  }
+  return num.toFixed(2) + ' ' + units[i];
+}
+
+function scanDiffStateText(s) {
+  if (s === 0) return 'NEW';
+  if (s === 1) return 'ERROR';
+  if (s === 2) return 'DELETED';
+  if (s === 3) return 'CANCELED';
+  if (s === 4) return 'CHANGED';
+  return 'UNKNOWN';
+}
+
+function openHtmlWindow(html) {
+  var win = window.open('', '_blank');
+  if (win) {
+    win.document.write(html);
+    win.document.close();
+  } else {
+    promptMsg('Popup blocked.');
+  }
+}
+
+function buildScanDiffHtml(summary, items, pageSize, initialPage, initialState) {
+  var safeSummary = JSON.stringify(summary || {}).replace(/</g, '\\u003c');
+  var safeItems = JSON.stringify(items || []).replace(/</g, '\\u003c');
+  var safePageSize = Number(pageSize) > 0 ? Number(pageSize) : 10;
+  var safeInitialPage = Number(initialPage) > 0 ? Number(initialPage) : 1;
+  var safeInitialState = initialState || 'ALL';
+
+  return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Scan Result</title>
+  <style>
+    body { font-family: Consolas, monospace; background: #121212; color: #e5e7eb; padding: 20px; }
+    h2, h3 { margin: 0 0 12px 0; }
+    .muted { color: #9ca3af; }
+    .toolbar { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 8px; }
+    .tab { border: 1px solid #374151; background: #1f2937; color: #d1d5db; padding: 6px 10px; border-radius: 6px; cursor: pointer; }
+    .tab.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .table-wrap { margin-top: 14px; }
+    table { width: 100%; border-collapse: collapse; }
+    th, td { border: 1px solid #333; padding: 8px; text-align: left; }
+    th { background: #1f2937; }
+    .empty { text-align: center; color: #9ca3af; }
+    .pager { margin-top: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+    .pager button { border: 1px solid #374151; background: #1f2937; color: #d1d5db; padding: 4px 10px; border-radius: 6px; cursor: pointer; }
+    .pager button.active { background: #2563eb; border-color: #2563eb; color: #fff; }
+    .pager button:disabled { opacity: 0.45; cursor: not-allowed; }
+    .status { margin-top: 10px; color: #fca5a5; min-height: 22px; }
+    .metric-grid { margin-top: 10px; display: grid; grid-template-columns: 1fr 1fr; gap: 24px; max-width: 980px; }
+    .metric-col { display: grid; gap: 6px; }
+    .metric-row { font-variant-numeric: tabular-nums; white-space: pre; }
+    .k { display: inline-block; width: 9ch; color: #e5e7eb; }
+  </style>
+</head>
+<body>
+  <h2>Scan Diff Summary</h2>
+  <div class="muted">Scan ID: <span id="scanId"></span></div>
+  <div class="muted">Root: <span id="scanRoot"></span></div>
+  <div class="muted">Start time: <span id="startTime"></span></div>
+  <div class="muted" style="margin-top:8px;">Elapsed time: <span id="elapsed"></span>s</div>
+  <div class="metric-grid">
+    <div class="metric-col">
+      <div class="metric-row"><span class="k">Files</span>: <span id="fileCnt"></span></div>
+      <div class="metric-row"><span class="k">Dirs</span>: <span id="dirCnt"></span></div>
+      <div class="metric-row"><span class="k">Links</span>: <span id="linkCnt"></span></div>
+      <div class="metric-row"><span class="k">Total</span>: <span id="totalSize"></span></div>
+    </div>
+    <div class="metric-col">
+      <div class="metric-row"><span class="k">NEW</span>: <span id="newCnt"></span></div>
+      <div class="metric-row"><span class="k">CHANGED</span>: <span id="changedCnt"></span></div>
+      <div class="metric-row"><span class="k">DELETED</span>: <span id="deletedCnt"></span></div>
+      <div class="metric-row"><span class="k">ERROR</span>: <span id="errorCnt"></span></div>
+      <div class="metric-row"><span class="k">CANCELED</span>: <span id="canceledCnt"></span></div>
+    </div>
+  </div>
+
+  <h3 style="margin-top:20px;">Details</h3>
+  <div id="tabs" class="toolbar"></div>
+  <div id="status" class="status"></div>
+  <div class="table-wrap">
+    <table>
+      <thead>
+        <tr><th>Status</th><th>Path</th><th>Size</th></tr>
+      </thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+  <div id="pager" class="pager"></div>
+
+  <script>
+    (function () {
+      const summary = ${safeSummary};
+      const initialItems = ${safeItems};
+      const limit = ${safePageSize};
+      const order = ['ALL', 'NEW', 'DELETED', 'CHANGED', 'ERROR', 'CANCELED'];
+      const keyMap = { ALL: 'all', NEW: 'new', DELETED: 'deleted', CHANGED: 'changed', ERROR: 'error', CANCELED: 'canceled' };
+      let currentState = ${JSON.stringify(safeInitialState)};
+      let currentPage = ${safeInitialPage};
+      let isLoading = false;
+
+      const tabsEl = document.getElementById('tabs');
+      const rowsEl = document.getElementById('rows');
+      const pagerEl = document.getElementById('pager');
+      const statusEl = document.getElementById('status');
+
+      function esc(v) {
+        return String(v ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+
+      function num(v) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      }
+
+      function formatBytes(n) {
+        let val = num(n);
+        if (val < 1024) return val + ' B';
+        const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+        let i = -1;
+        while (val >= 1024 && i < units.length - 1) {
+          val /= 1024;
+          i++;
+        }
+        return val.toFixed(2) + ' ' + units[i];
+      }
+
+      function formatUnixTime(sec) {
+        const ts = Number(sec);
+        if (!Number.isFinite(ts) || ts <= 0) return '-';
+        const d = new Date(ts * 1000);
+        const p = n => String(n).padStart(2, '0');
+        return d.getFullYear() + '-'
+          + p(d.getMonth() + 1) + '-'
+          + p(d.getDate()) + ' '
+          + p(d.getHours()) + ':'
+          + p(d.getMinutes()) + ':'
+          + p(d.getSeconds());
+      }
+
+      function stateText(state) {
+        if (state === 0) return 'NEW';
+        if (state === 1) return 'ERROR';
+        if (state === 2) return 'DELETED';
+        if (state === 3) return 'CANCELED';
+        if (state === 4) return 'CHANGED';
+        return 'UNKNOWN';
+      }
+
+      function totalForState(state) {
+        if (state === 'ALL') {
+          return num(summary.new) + num(summary.changed) + num(summary.deleted) + num(summary.error) + num(summary.canceled);
+        }
+        return num(summary[keyMap[state]]);
+      }
+
+      function totalPages(state) {
+        return Math.max(1, Math.ceil(totalForState(state) / Math.max(1, limit)));
+      }
+
+      function renderSummary() {
+        document.getElementById('scanId').textContent = summary.id ?? '';
+        document.getElementById('scanRoot').textContent = summary.root ?? '';
+        document.getElementById('startTime').textContent = formatUnixTime(summary.start_time);
+        document.getElementById('elapsed').textContent = summary.elapsed_time ?? 0;
+        document.getElementById('fileCnt').textContent = summary.file_count ?? 0;
+        document.getElementById('dirCnt').textContent = summary.dir_count ?? 0;
+        document.getElementById('linkCnt').textContent = summary.link_count ?? 0;
+        document.getElementById('totalSize').textContent = formatBytes(summary.total_size ?? 0);
+        document.getElementById('newCnt').textContent = summary.new ?? 0;
+        document.getElementById('changedCnt').textContent = summary.changed ?? 0;
+        document.getElementById('deletedCnt').textContent = summary.deleted ?? 0;
+        document.getElementById('errorCnt').textContent = summary.error ?? 0;
+        document.getElementById('canceledCnt').textContent = summary.canceled ?? 0;
+      }
+
+      function renderTabs() {
+        let html = '';
+        for (let i = 0; i < order.length; i++) {
+          const s = order[i];
+          const active = s === currentState ? ' active' : '';
+          html += '<button class="tab' + active + '" data-state="' + s + '">' + s + ' (' + totalForState(s) + ')</button>';
+        }
+        tabsEl.innerHTML = html;
+        const btns = tabsEl.querySelectorAll('button[data-state]');
+        for (let i = 0; i < btns.length; i++) {
+          btns[i].addEventListener('click', function () {
+            const nextState = btns[i].getAttribute('data-state');
+            if (!nextState || isLoading || nextState === currentState) return;
+            loadPage(nextState, 1);
+          });
+        }
+      }
+
+      function renderRows(items) {
+        const arr = Array.isArray(items) ? items : [];
+        if (arr.length === 0) {
+          rowsEl.innerHTML = '<tr><td class="empty" colspan="3">No results</td></tr>';
+          return;
+        }
+
+        let html = '';
+        for (let i = 0; i < arr.length; i++) {
+          const it = arr[i] || {};
+          const s = num(it.state);
+          const oldSize = num(it.old_size);
+          const nowSize = num(it.size);
+          const sizeText = (s === 4) ? (formatBytes(oldSize) + ' -> ' + formatBytes(nowSize)) : formatBytes(nowSize);
+          html += '<tr>'
+            + '<td>' + esc(stateText(s)) + '</td>'
+            + '<td>' + esc(it.path ?? '') + '</td>'
+            + '<td>' + esc(sizeText) + '</td>'
+            + '</tr>';
+        }
+        rowsEl.innerHTML = html;
+      }
+
+      function renderPager() {
+        const total = totalForState(currentState);
+        const pages = totalPages(currentState);
+        const p = Math.min(Math.max(1, currentPage), pages);
+        currentPage = p;
+
+        let html = '';
+        html += '<button data-nav="prev" ' + (p <= 1 ? 'disabled' : '') + '>&lt;</button>';
+
+        const start = Math.max(1, p - 2);
+        const end = Math.min(pages, start + 4);
+        for (let page = start; page <= end; page++) {
+          const cls = page === p ? 'active' : '';
+          html += '<button class="' + cls + '" data-page="' + page + '">' + page + '</button>';
+        }
+
+        html += '<button data-nav="next" ' + (p >= pages ? 'disabled' : '') + '>&gt;</button>';
+        html += '<span class="muted">Page ' + p + '/' + pages + ', Total ' + total + '</span>';
+
+        pagerEl.innerHTML = html;
+
+        const pageBtns = pagerEl.querySelectorAll('button[data-page]');
+        for (let i = 0; i < pageBtns.length; i++) {
+          pageBtns[i].addEventListener('click', function () {
+            if (isLoading) return;
+            const target = Number(pageBtns[i].getAttribute('data-page')) || 1;
+            if (target !== currentPage) loadPage(currentState, target);
+          });
+        }
+
+        const prevBtn = pagerEl.querySelector('button[data-nav="prev"]');
+        const nextBtn = pagerEl.querySelector('button[data-nav="next"]');
+        if (prevBtn) prevBtn.addEventListener('click', function () {
+          if (!isLoading && currentPage > 1) loadPage(currentState, currentPage - 1);
+        });
+        if (nextBtn) nextBtn.addEventListener('click', function () {
+          if (!isLoading && currentPage < pages) loadPage(currentState, currentPage + 1);
+        });
+      }
+
+      async function loadPage(state, page) {
+        const pages = totalPages(state);
+        currentState = state;
+        currentPage = Math.min(Math.max(1, page), pages);
+        renderTabs();
+        renderPager();
+
+        isLoading = true;
+        statusEl.textContent = '';
+
+        try {
+          const url = '/scan_diff_detail?id=' + encodeURIComponent(summary.id)
+            + '&state=' + encodeURIComponent(currentState)
+            + '&page=' + encodeURIComponent(currentPage)
+            + '&limit=' + encodeURIComponent(limit);
+
+          const res = await fetch(url);
+          if (!res.ok) {
+            statusEl.textContent = 'Load detail failed: ' + res.status;
+            renderRows([]);
+            return;
+          }
+
+          const json = await res.json();
+          renderRows(Array.isArray(json && json.items) ? json.items : []);
+        } catch (e) {
+          statusEl.textContent = 'Load detail error';
+          renderRows([]);
+        } finally {
+          isLoading = false;
+          renderTabs();
+          renderPager();
+        }
+      }
+
+      renderSummary();
+      renderTabs();
+      renderRows(initialItems);
+      renderPager();
+    })();
+  ${'</scr' + 'ipt>'}
+</body>
+</html>
+`;
+}
+
+function buildIndexSummaryHtml(folder, extension, initialItems, initialSearch, pageSize, initialPage) {
+  var safeFolder = JSON.stringify(folder || {}).replace(/</g, '\\u003c');
+  var safeExtension = JSON.stringify(extension || {}).replace(/</g, '\\u003c');
+  var safeInitialItems = JSON.stringify(initialItems || []).replace(/</g, '\\u003c');
+  var safeInitialSearch = JSON.stringify(initialSearch || '/');
+  var safePageSize = Number(pageSize) > 0 ? Number(pageSize) : 50;
+  var safeInitialPage = Number(initialPage) > 0 ? Number(initialPage) : 1;
+  return `
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>System Index Lookup</title>
+  <style>
+    body { font-family: Consolas, monospace; background:#121212; color:#e5e7eb; padding:20px; }
+    h2,h3 { margin:0 0 10px 0; }
+    h2 { margin-bottom: 16px; }
+    .section { border:1px solid #2f3640; border-radius:10px; padding:14px; margin-bottom:14px; background:#171a21; }
+    .muted { color:#9ca3af; }
+    .head-stats { margin: 0 0 14px 0; color:#e5e7eb; }
+    .bar-wrap { margin: 6px 0 0 0; width:100%; height:14px; border:1px solid #374151; border-radius:999px; background:#0f172a; overflow:hidden; }
+    .bar-fill { height:100%; background:linear-gradient(90deg,#10b981,#22c55e); }
+    .bar-label { margin:6px 0 14px 0; color:#9ca3af; font-size:12px; }
+    .rows { margin-top:10px; display:grid; gap:8px; }
+    .row { display:grid; grid-template-columns: minmax(320px, 2fr) minmax(110px, auto) minmax(180px, 2fr) minmax(70px, auto); gap:8px; align-items:center; }
+    .row .name { overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+    .row .size { text-align:right; color:#d1d5db; }
+    .mini-wrap { height:12px; border:1px solid #334155; border-radius:999px; background:#111827; overflow:hidden; }
+    .mini-fill { height:100%; background:linear-gradient(90deg,#3b82f6,#22d3ee); }
+    .pct { color:#9ca3af; text-align:right; }
+    .search-box { border:1px solid #334155; border-radius:8px; padding:10px 12px; display:grid; grid-template-columns: 1fr auto auto; gap:8px; background:#0f172a; }
+    .search-box input { width:95%; border:1px solid #334155; border-radius:6px; background:#020617; color:#e5e7eb; padding:8px 10px; }
+    .search-box button { border:1px solid #334155; border-radius:6px; background:#1f2937; color:#e5e7eb; padding:8px 12px; cursor:pointer; }
+    .search-box button:disabled { opacity:0.5; cursor:not-allowed; }
+    .detail-table { width:100%; border-collapse:collapse; margin-top:10px; }
+    .detail-table th, .detail-table td { border:1px solid #334155; padding:8px; text-align:left; }
+    .detail-table th { background:#1f2937; }
+    .detail-table td.path { color:#9ca3af; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; max-width:460px; }
+    .pager { margin-top:10px; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+    .pager button { border:1px solid #334155; border-radius:6px; background:#1f2937; color:#e5e7eb; padding:6px 12px; cursor:pointer; }
+    .pager button:disabled { opacity:0.5; cursor:not-allowed; }
+    .empty { color:#9ca3af; text-align:center; padding:14px 0; }
+    @media (max-width: 820px) {
+      .row { grid-template-columns: 1fr; gap:6px; }
+      .search-box { grid-template-columns: 1fr; }
+      .detail-table th:nth-child(4), .detail-table td:nth-child(4),
+      .detail-table th:nth-child(5), .detail-table td:nth-child(5) { display:none; }
+    }
+  </style>
+</head>
+<body>
+  <h2>System Index Lookup</h2>
+  <div class="head-stats">Capacity: <span id="kTotal"></span> | Available: <span id="kAvail"></span></div>
+  <div class="bar-wrap"><div id="scanProgress" class="bar-fill"></div></div>
+  <div id="scanPct" class="bar-label"></div>
+    
+  <div class="section">
+    <h3 style="margin-top:12px;">Folder Summary</h3>
+    <div style="margin-top:10px;"><span class="muted">Root directory:</span> <span id="rootDir"></span></div>
+    <div class="muted" style="margin-top:8px;">Folders under root</div>
+    <div id="folderRows" class="rows"></div>
+  </div>
+
+  <div class="section">
+    <h3>Extension Summary</h3>
+    <div id="extRows" class="rows"></div>
+  </div>
+
+  <div class="section">
+    <h3>Index Detail Search</h3>
+    <div class="search-box">
+      <input id="searchInput" type="text" placeholder="Search files..." />
+      <button id="searchBtn" type="button">Search</button>
+      <button id="resetBtn" type="button">Reset</button>
+    </div>
+    <table class="detail-table">
+      <thead>
+        <tr><th>Name</th><th>Directory</th><th>Size</th><th>Type</th><th>State</th></tr>
+      </thead>
+      <tbody id="detailRows"></tbody>
+    </table>
+    <div class="pager">
+      <button id="prevBtn" type="button">&lt; Prev</button>
+      <button id="nextBtn" type="button">Next &gt;</button>
+      <span id="pageInfo" class="muted"></span>
+    </div>
+  </div>
+
+  <script>
+    (function () {
+      const folder = ${safeFolder};
+      const extension = ${safeExtension};
+      const initialItems = ${safeInitialItems};
+      const defaultSearch = ${safeInitialSearch};
+      const folders = Array.isArray(folder.folders) ? folder.folders.slice() : [];
+      const exts = Array.isArray(extension.extensions) ? extension.extensions.slice() : [];
+
+      function num(v) {
+        const n = Number(v);
+        return Number.isFinite(n) ? n : 0;
+      }
+      function esc(v) {
+        return String(v ?? '')
+          .replaceAll('&', '&amp;')
+          .replaceAll('<', '&lt;')
+          .replaceAll('>', '&gt;')
+          .replaceAll('"', '&quot;')
+          .replaceAll("'", '&#39;');
+      }
+      function formatBytes(n) {
+        let val = num(n);
+        if (val < 1024) return val + ' B';
+        const units = ['KB', 'MB', 'GB', 'TB', 'PB'];
+        let i = -1;
+        while (val >= 1024 && i < units.length - 1) {
+          val /= 1024;
+          i++;
+        }
+        return val.toFixed(2) + ' ' + units[i];
+      }
+      function clamp01(v) {
+        if (v < 0) return 0;
+        if (v > 1) return 1;
+        return v;
+      }
+      function pct(v) {
+        const p = Math.ceil(clamp01(v) * 100);
+        return v > 0 && p === 0 ? 1 : p;
+      }
+      function splitPath(p) {
+        const s = String(p || '');
+        const cut = s.lastIndexOf('/');
+        if (cut <= 0) return { dir: '/', name: s };
+        return { dir: s.slice(0, cut), name: s.slice(cut + 1) };
+      }
+
+      folders.sort((a, b) => num(b.bytes) - num(a.bytes));
+      exts.sort((a, b) => num(b.bytes) - num(a.bytes));
+
+      const totalBytes = num(folder.disk_capacity_bytes);
+      const availBytes = num(folder.disk_available_bytes);
+      const indexedBytes = folders.reduce((acc, it) => acc + num(it.bytes), 0);
+      const scanRatio = availBytes > 0 ? indexedBytes / availBytes : 0;
+      let scanProgressPct = Math.ceil(clamp01(scanRatio) * 100);
+      if (indexedBytes > 0 && scanProgressPct === 0) scanProgressPct = 1;
+
+      document.getElementById('kTotal').textContent = formatBytes(totalBytes);
+      document.getElementById('kAvail').textContent = formatBytes(availBytes);
+      document.getElementById('rootDir').textContent = folder.root_directory || '/';
+      document.getElementById('scanProgress').style.width = scanProgressPct + '%';
+      document.getElementById('scanPct').textContent = scanProgressPct + '%';
+
+      const folderRowsEl = document.getElementById('folderRows');
+      const folderDenom = Math.max(1, availBytes);
+      if (folders.length === 0) {
+        folderRowsEl.innerHTML = '<div class="empty">No folder data</div>';
+      } else {
+        folderRowsEl.innerHTML = folders.map(it => {
+          const ratio = num(it.bytes) / folderDenom;
+          return '<div class="row">'
+            + '<div class="name">' + esc(it.folder || '') + '</div>'
+            + '<div class="size">' + esc(formatBytes(it.bytes)) + '</div>'
+            + '<div class="mini-wrap"><div class="mini-fill" style="width:' + pct(ratio) + '%"></div></div>'
+            + '<div class="pct">' + pct(ratio) + '%</div>'
+            + '</div>';
+        }).join('');
+      }
+
+      const extRowsEl = document.getElementById('extRows');
+      const extDenom = Math.max(1, availBytes);
+      if (exts.length === 0) {
+        extRowsEl.innerHTML = '<div class="empty">No extension data</div>';
+      } else {
+        extRowsEl.innerHTML = exts.map(it => {
+          const ratio = num(it.bytes) / extDenom;
+          return '<div class="row">'
+            + '<div class="name">' + esc(it.extension || '(no ext)') + '</div>'
+            + '<div class="size">' + esc(formatBytes(it.bytes)) + '</div>'
+            + '<div class="mini-wrap"><div class="mini-fill" style="width:' + pct(ratio) + '%"></div></div>'
+            + '<div class="pct">' + pct(ratio) + '%</div>'
+            + '</div>';
+        }).join('');
+      }
+
+      const inputEl = document.getElementById('searchInput');
+      const searchBtn = document.getElementById('searchBtn');
+      const resetBtn = document.getElementById('resetBtn');
+      const prevBtn = document.getElementById('prevBtn');
+      const nextBtn = document.getElementById('nextBtn');
+      const pageInfo = document.getElementById('pageInfo');
+      const detailRows = document.getElementById('detailRows');
+
+      let currentQuery = defaultSearch || folder.root_directory || '/';
+      let currentPage = ${safeInitialPage};
+      const pageSize = ${safePageSize};
+      let canNext = false;
+      let isLoading = false;
+
+      inputEl.value = currentQuery;
+
+      function normalizeQuery(raw) {
+        const q = String(raw || '').trim();
+        if (!q || q === '/') return folder.root_directory || '/';
+        return q;
+      }
+
+      function renderDetails(items) {
+        const arr = Array.isArray(items) ? items : [];
+        if (arr.length === 0) {
+          detailRows.innerHTML = '<tr><td class="empty" colspan="5">No results</td></tr>';
+          return;
+        }
+        detailRows.innerHTML = arr.map(it => {
+          const parts = splitPath(it.path);
+          return '<tr>'
+            + '<td>' + esc(parts.name) + '</td>'
+            + '<td class="path">' + esc(parts.dir) + '</td>'
+            + '<td>' + esc(formatBytes(it.size)) + '</td>'
+            + '<td>' + esc(it.node_type || '') + '</td>'
+            + '<td>' + esc(it.state || '') + '</td>'
+            + '</tr>';
+        }).join('');
+      }
+
+      function updatePager() {
+        prevBtn.disabled = isLoading || currentPage <= 1;
+        nextBtn.disabled = isLoading || !canNext;
+        pageInfo.textContent = 'Page ' + currentPage + (canNext ? ' (more)' : ' (end)');
+      }
+
+      async function loadDetail(page) {
+        if (isLoading) return;
+        const q = normalizeQuery(currentQuery);
+        if (!q) return;
+
+        isLoading = true;
+        currentPage = Math.max(1, page | 0);
+        updatePager();
+
+        try {
+          const url = '/index_detail?search=' + encodeURIComponent(q)
+            + '&page=' + encodeURIComponent(currentPage)
+            + '&limit=' + encodeURIComponent(pageSize);
+          const res = await fetch(url);
+          if (!res.ok) {
+            detailRows.innerHTML = '<tr><td class="empty" colspan="5">Load failed: ' + res.status + '</td></tr>';
+            canNext = false;
+            return;
+          }
+          const json = await res.json();
+          const items = Array.isArray(json && json.items) ? json.items : [];
+          renderDetails(items);
+          canNext = items.length >= pageSize;
+        } catch (e) {
+          detailRows.innerHTML = '<tr><td class="empty" colspan="5">Load error</td></tr>';
+          canNext = false;
+        } finally {
+          isLoading = false;
+          updatePager();
+        }
+      }
+
+      searchBtn.addEventListener('click', function () {
+        currentQuery = normalizeQuery(inputEl.value);
+        inputEl.value = currentQuery;
+        loadDetail(1);
+      });
+      resetBtn.addEventListener('click', function () {
+        currentQuery = '';
+        inputEl.value = '';
+        currentPage = 1;
+        canNext = false;
+        renderDetails([]);
+        updatePager();
+      });
+      inputEl.addEventListener('keydown', function (e) {
+        if (e.key === 'Enter') {
+          currentQuery = normalizeQuery(inputEl.value);
+          inputEl.value = currentQuery;
+          loadDetail(1);
+        }
+      });
+      prevBtn.addEventListener('click', function () {
+        if (currentPage > 1) loadDetail(currentPage - 1);
+      });
+      nextBtn.addEventListener('click', function () {
+        if (canNext) loadDetail(currentPage + 1);
+      });
+
+      renderDetails(initialItems);
+      canNext = Array.isArray(initialItems) && initialItems.length >= pageSize;
+      updatePager();
+    })();
+  ${'</scr' + 'ipt>'}
+</body>
+</html>
+`;
 }
 
 // --- Rendering ---
@@ -699,52 +1766,36 @@ function renderScans() {
   var tbody = document.getElementById('scanTableRows');
   tbody.innerHTML = '';
 
-  // Group by root
-  var groupMap = {};
-  scanItems.forEach(it => {
-    if (!groupMap[it.root]) groupMap[it.root] = [];
-    groupMap[it.root].push(it);
+  var sorted = scanItems.slice().sort((a, b) => {
+    var aMs = Number(a.sort_ms) || 0;
+    var bMs = Number(b.sort_ms) || 0;
+    if (aMs !== bMs) return bMs - aMs; // start_time desc
+    return (Number(b.id) || 0) - (Number(a.id) || 0);
   });
 
-  // Sort groups by latest sequence
-  var roots = Object.keys(groupMap).sort((a, b) => {
-    var aSeq = groupMap[a][groupMap[a].length - 1].seq;
-    var bSeq = groupMap[b][groupMap[b].length - 1].seq;
-    return bSeq - aSeq;
-  });
-
-  roots.forEach(root => {
-    var group = groupMap[root];
-    for (var j = group.length - 1; j >= 0; j--) {
-      var data = group[j];
-      var tr = document.createElement('tr');
-      tr.innerHTML = `
-        <td>${data.time}</td>
-        <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;">${root}</td>
-        <td><span class="state-${data.state}">${data.state}</span></td>
-        <td><button ${ (serverOffline || data.canceling || !['RUNNING','PENDING'].includes(data.state)) ? 'disabled' : '' } onclick="cancelScan(${data.id})">${data.canceling ? '...' : 'Cancel'}</button></td>
-        <td><span class="exp-${data.export_state}">${data.export_state}</span></td>
-        <td><button ${ (!exportDirSet || data.export_state !== 'Exported') ? 'disabled' : '' } onclick="exportResult(${data.id})">Result</button></td>
-      `;
-      tbody.appendChild(tr);
-    }
-  });
-}
-
-function renderIndexHistory() {
-  var tbody = document.getElementById('indexTableRows');
-  tbody.innerHTML = '';
-  Object.keys(indexHistoryMap).sort((a,b) => Number(a)-Number(b)).forEach(v => {
+  sorted.forEach(data => {
     var tr = document.createElement('tr');
-    tr.innerHTML = `<td>${indexHistoryMap[v].time}</td><td><button ${(!exportDirSet) ? 'disabled' : ''} onclick="indexResult(${v})">Snapshot</button></td>`;
+    tr.innerHTML = `
+      <td>${data.time}</td>
+      <td style="max-width:300px; overflow:hidden; text-overflow:ellipsis;">${escapeHtml(data.root)}</td>
+      <td><span class="state-${data.state}">${data.state}</span></td>
+      <td><button ${ (serverOffline || data.canceling || !['RUNNING','PENDING'].includes(data.state)) ? 'disabled' : '' } onclick="cancelScan(${data.id})">${data.canceling ? '...' : 'Cancel'}</button></td>
+      <td><span class="exp-${data.export_state}">${data.export_state}</span></td>
+      <td><button ${ (data.export_state !== 'Exported') ? 'disabled' : '' } onclick="exportResult(${data.id})">Result</button></td>
+    `;
     tbody.appendChild(tr);
   });
 }
 
 window.onload = async function() {
-  setActionButtonsEnabled(false);
+  setActionButtonsEnabled(true);
+  // Reload flow: hydrate scan table from DB first.
+  await syncScansFromHistory();
+  renderScans();
+  promptMsg('Ready.');
   await fetchDownloadTime();
   await metrics();
+  startPolling();
 };
 </script>
 </body>
