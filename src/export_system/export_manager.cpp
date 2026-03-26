@@ -1,174 +1,218 @@
-#include <export_manager.h>
-#include <exporter.h>
-#include <index_reporter.h>
-#include <async_logger.h>
-#include <metrics.h>
+#include <thread>
+#include "export_manager.h"
+#include "async_logger.h"
+#include "metrics.h"
+#include "config.h"
+#include "index_writer.h"
+#include "index_reader.h"
+#include "scan_table.h"
+#include "scan_diff.h"
 
-// ============
-// MANAGER API
-// ============
 
-void            //blocking wait pop
-ExportManager::run() {
+namespace {
+    JobQueue<FileEvent>::QueueMetrics result_queue_metrics() {
+        JobQueue<FileEvent>::QueueMetrics metrics{};
+        metrics.queued_number = &Metrics::measurement().export_result_pending;
+        return metrics;
+    }
+    JobQueue<DeleteTask>::QueueMetrics delete_queue_metrics() {
+        JobQueue<DeleteTask>::QueueMetrics metrics{};
+        metrics.queued_number = &Metrics::measurement().export_delete_pending;
+        return metrics;
+    }
+};
 
-    while (1) {
-        ExportData data;
-        {
-            std::unique_lock<std::mutex> lock(queue_mtx);
+ExportManager::ExportManager() 
+    : db_path(Config::cfg().db().db_path),
+      WRITE_BATCH_SIZE(Config::cfg().db().batch_size),
+      result_queue(
+        JobQueue<FileEvent>::Fifo, result_queue_metrics(), 
+        Config::cfg().exportmanager().result_que_size),
+      delete_queue(
+        JobQueue<DeleteTask>::Fifo, delete_queue_metrics(), 
+        Config::cfg().exportmanager().delete_que_size)
+    {
+        Metrics::measurement().const_result_que_size = Config::cfg().exportmanager().result_que_size;
+        Metrics::measurement().const_delete_que_size = Config::cfg().exportmanager().delete_que_size;
+    }
 
-            while (result_queue.empty() && !stop_flag) {
-                cv.wait(lock);
-            }
 
-            if (result_queue.empty() && stop_flag)   break;
+bool
+ExportManager::start() {
 
-            data = std::move(result_queue.front());
-            result_queue.pop();
+    if (result_thread.joinable() || delete_thread.joinable())
+        return true;
 
-            Metrics::measurement().export_pending.fetch_sub(1);
-            Metrics::measurement().export_running.fetch_add(1);
+    // Pre-create all tables with a single connection before launching threads.
+    // Without this, both threads race to set WAL mode to create a fresh database file
+    // and one hits SQLITE_BUSY -> uncaught std::runtime_error -> std::terminate.
+    try {
+        DatabaseConnection db_con(db_path);
+        ScanTable    init_scan(db_con);
+
+        // load completed scans in db into map for frontend checking
+        int limit = 1000;
+        int offset = 0;
+
+        while (true) {
+            int loaded = 0;
+        
+            init_scan.get_all(limit, offset,
+                [&](const ScanTaskRow& row) {
+                    {
+                        std::lock_guard<std::mutex> lock(map_mtx);
+                        exported_map.emplace(row.scan_id);
+                    }
+                    loaded++;
+                }
+            );
+
+            if (loaded < limit) break;  //last page
+            offset += limit;
         }
 
 
-        bool exported = export_result_and_index(std::move(data));
-        // Metrics::measurement().export_running.fetch_sub(1);      //update too slow
-
-
-        if (!exported)
-            AsyncLogger::logger().error("ExportManager::run() - failed to export result and index");
-        else 
-            Metrics::measurement().export_finished.fetch_add(1);
+    } catch (const std::exception& e) {
+        AsyncLogger::logger().error("ExportManager::start - DB schema init failed: " + std::string(e.what()));
+        return false;
     }
+
+    try {
+        result_thread = std::thread(&ExportManager::write_result_to_db, this);
+        delete_thread = std::thread(&ExportManager::mark_deleted_in_db, this);
+
+    } catch (const std::exception& e) {
+        AsyncLogger::logger().error("ExportManager::start() - create thread failed");
+        shutdown();
+        return false;
+    }
+
+    return true;
 }
+
 
 void 
 ExportManager::shutdown() {
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        stop_flag = true;
-    }
-    cv.notify_all();
+    stop_flag = true;
+
+    //close delete queue first to prevent result thread blocking
+    result_queue.shutdown();
+    if (result_thread.joinable())
+        result_thread.join();
+
+    delete_queue.shutdown();
+    if (delete_thread.joinable())
+        delete_thread.join();
+
+}
+
+
+void 
+ExportManager::insert_scan_task(ScanTaskRow&& data) {
+    DatabaseConnection db_con(db_path);
+    ScanTable scan_table(db_con);
+    scan_table.upsert(data);
+}
+
+// we actually insert to db at end of scan; update_scan_finish unused
+void 
+ExportManager::update_scan_finish(uint64_t scan_id, time_t finish_time) {
+    DatabaseConnection db_con(db_path);
+    ScanTable scan_table(db_con);
+    scan_table.update_end(scan_id, finish_time);
 }
 
 void 
-ExportManager::push_queue(ExportData&& data) {
-    {
-        std::lock_guard<std::mutex> lock(queue_mtx);
-        result_queue.push(std::move(data));
-        AsyncLogger::logger().debug("ExportManager::push_queue result_queue.push(std::move(data));");
-        Metrics::measurement().export_pending.fetch_add(1);
-    }
-    
-    cv.notify_one();
+ExportManager::push_result_queue(FileEvent&& event) {
+    result_queue.push(std::move(event));
 }
 
+void 
+ExportManager::write_result_to_db() {
+    try {
 
-bool    //consume
-ExportManager::export_result_and_index(ExportData&& data) {
-    Paths scan_paths;
-    uint64_t id = data.scan_id;
+        DatabaseConnection db_con(db_path);
+        IndexWriter writer(db_con);
 
-    // update index during exporting
-    if (!scan_report(std::move(data), scan_paths.detail_path, scan_paths.summary_path))
-        return false;
-    AsyncLogger::logger().debug("ExportManager::export_result_and_index::scan_report; index size: " + std::to_string(index.index_size()));
+        int batch_count = 0;
 
-    {
-        std::lock_guard<std::mutex> lock(map_mtx);
-        export_map.emplace(id, scan_paths);
-    }
-
-    time_t timestamp = std::time(nullptr);
-    bool update_index = false;
-    uint64_t latest_version_number = index.get_version_number();
-    {   
-        std::lock_guard<std::mutex> lock(map_mtx);
-        if (current_index.index_version != latest_version_number) {
-            update_index = true;
-        }
-    }
-    Paths index_paths;
-    if (update_index) {
-        if (!index_report(latest_version_number, timestamp, index_paths.detail_path, index_paths.summary_path))
-            return false;
-    } 
-    AsyncLogger::logger().debug("ExportManager::export_result_and_index::index_report; index size: " + std::to_string(index.index_size()));
-
-    {
-        std::lock_guard<std::mutex> lock(map_mtx);
-
-        if (update_index) {
-            current_index.update(latest_version_number, timestamp);
-            index_map.emplace(current_index.index_version, index_paths);
-        }
-    }
-    return true;
-}
+        std::function<void()> commit_batch = [&]() {
+            if (batch_count > 0) {
+                writer.end_transaction();
+                Metrics::measurement().export_result_running.fetch_sub(batch_count);
+                Metrics::measurement().export_result_finished.fetch_add(batch_count);
+                batch_count = 0;
+            }
+        };
 
 
-bool 
-ExportManager::set_dir(std::string&& dir) {
-    if (!formater::validate_outdir(dir))
-        return false;
-    this->export_dir = dir;
-    this->index_dir = std::move(dir);
-    return true;
-}   
+        FileEvent result;
 
-
-bool
-ExportManager::scan_report(ExportData&& data, std::string& result_path, std::string& summary_path) {
-    AsyncLogger::logger().debug("ExportManager::scan_report");
-
-    if (!formater::validate_outdir(export_dir)) {
-        Metrics::measurement().export_running.fetch_sub(1);
-        return false;
-    }   
-
-    Exporter exporter(data.scan_id, std::move(data.root_path), data.canceled, std::move(data.result), index);
-    if (!exporter.set_export_dir(export_dir)  ||
-        !exporter.export_result(result_path)  ||
-        !exporter.export_summary(summary_path)) 
-    {
-        Metrics::measurement().export_running.fetch_sub(1);
-        return false;
-    }
+        while (result_queue.pop(result)) {
         
-    Metrics::measurement().export_running.fetch_sub(1);
-    return true;
+            if (result.end_signal.is_sentinel) {
+                commit_batch();
+                
+                DeleteTask task(result.scan_id, result.path, result.end_signal.is_canceled);
+                delete_queue.push(std::move(task));
+                continue;
+            }
+
+            if (batch_count == 0) {
+                writer.begin_transaction();
+            }
+
+            Metrics::measurement().export_result_running.fetch_add(1);
+            writer.upsert(result);
+            batch_count++;
+
+            if (batch_count >= WRITE_BATCH_SIZE) {
+                commit_batch();
+            }
+
+            // Metrics::measurement().export_result_running.fetch_sub(1);
+            // Metrics::measurement().export_result_finished.fetch_add(1);
+        }
+
+    } catch (const std::exception& e) {
+        AsyncLogger::logger().error("write_result_to_db - fatal: " + std::string(e.what()));
+        delete_queue.shutdown();    //not to block delete_thread
+    }
 }
 
-bool
-ExportManager::index_report(uint64_t version_number, time_t timestamp, \
-            std::string& detail_path, std::string& summary_path) const {
 
-    if (!formater::validate_outdir(index_dir))    return false;
+void 
+ExportManager::mark_deleted_in_db() {
+    try {
+        DatabaseConnection db_con(db_path);
+        IndexWriter writer(db_con);
+        IndexReader reader(db_con);
+        ScanDiff    differ(db_con);
+        ScanTable scan_writer(db_con);
 
-    IndexReporter reporter(index, version_number);
-    
-    if (!reporter.set_export_dir(index_dir))
-        return false;
-    if (!reporter.export_index_summary(summary_path, timestamp))
-        return false;
-    if (!reporter.export_index_detail(detail_path, timestamp))
-        return false;
+        DeleteTask delete_task;
+        while (delete_queue.pop(delete_task)) {
 
-    return true;
+            Metrics::measurement().export_delete_running.fetch_add(1);
+
+            writer.mark_deleted(delete_task);
+            reader.find_scan_diff_and_upsert_scandiff(delete_task.scan_id, differ);
+            scan_writer.upsert_count(delete_task.scan_id);
+
+            {   
+                std::lock_guard<std::mutex> lock(map_mtx);
+                exported_map.emplace(delete_task.scan_id);
+            }
+            
+            notify_export_done(delete_task.submit_root);
+
+            Metrics::measurement().export_delete_running.fetch_sub(1);
+            Metrics::measurement().export_delete_finished.fetch_add(1);
+        }
+    } catch (const std::exception& e) {
+        AsyncLogger::logger().error("mark_deleted_in_db - fatal: " + std::string(e.what()));
+    }
 }
-
-// call scheduler.get_status in advance to ensure scan is finished; 
-// in order to distinguish EXPORTED from EXPORTING 
-
-// bool
-// ExportManager::check_exported(uint64_t scan_id) {
-//     std::lock_guard<std::mutex> lock(map_mtx);
-//     std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_id);
-//     if (it == export_map.end()) {
-//         AsyncLogger::logger().debug("ExportManager::check_exported - scan_id " + std::to_string(scan_id) + " not in export_map; maybe exporting, or pending -> canceled");
-//         return false;
-//     }
-//     return true;
-// }
 
 std::vector<bool>
 ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
@@ -178,8 +222,8 @@ ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
     results.reserve(scan_ids.size());
     
     for (size_t i=0; i<scan_ids.size(); ++i) {
-        std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_ids[i]);
-        if (it == export_map.end()) {
+        std::unordered_set<uint64_t>::iterator it = exported_map.find(scan_ids[i]);
+        if (it == exported_map.end()) {
             // AsyncLogger::logger().debug("ExportManager::check_exported - scan_id " + std::to_string(scan_ids[i]) + " not in export_map; maybe exporting, or pending -> canceled");
             results.push_back(0);
         }
@@ -189,58 +233,7 @@ ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
     return results;
 }
 
-
-bool 
-ExportManager::get_scan_result(uint64_t scan_id, \
-    std::string& scan_detail_path, std::string& scan_summary_path) {
-
-    std::lock_guard<std::mutex> lock(map_mtx);
-
-    std::unordered_map<uint64_t, Paths>::iterator it = export_map.find(scan_id);
-    if (it == export_map.end()) {
-        AsyncLogger::logger().info("ExportManager::get_scan_result - scan_id not in export_map; maybe exporting");
-        return false;
-    }
-
-    scan_detail_path = it->second.detail_path;
-    scan_summary_path = it->second.summary_path;
-
-    return true;
-}
-
-
-bool
-ExportManager::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
-
-    std::lock_guard<std::mutex> lock(map_mtx);
-
-    if (current_index.index_version == 0) {
-        AsyncLogger::logger().info("ExportManager::check_index - no previous scans recorded, system index empty");
-        return true;
-    }
-
-    snapshot_timestamp = current_index.latest_time;
-    version_number = current_index.index_version;
-
-    return true;        //always
-}
-
-
-bool
-ExportManager::get_index_result(uint64_t version_number, \
-    std::string& index_detail_path, std::string& index_summary_path) {
-
-    {
-        std::lock_guard<std::mutex> lock(map_mtx);
-        std::unordered_map<uint64_t, Paths>::iterator it = index_map.find(version_number);
-        if (it == index_map.end()) {
-            AsyncLogger::logger().error("ExportManager::get_index_result - index_version not found in index_map");
-            return false;
-        }
-
-        index_detail_path = it->second.detail_path;
-        index_summary_path = it->second.summary_path;
-    }
-
-    return true;
+void 
+ExportManager::set_scheduler_callback(std::function<void(const std::string&)> fn) {
+    notify_export_done = std::move(fn);
 }
