@@ -5,95 +5,54 @@
 #include <string>
 #include <queue>
 #include <vector>
-#include <unordered_map>
+#include <unordered_set>
 #include <mutex>
 #include <condition_variable>
-
-#include <file_event.h>
-#include <metadata_index.h>
-#include <config.h>
-#include <async_logger.h>
+#include "job_queue.h"
+#include "db_types.h"
 
 
-// result_queue: multiple producer (scanner call task_on_job_finish) + one consumer (one thread for IO; serial IO (run))
-// export_map: one writer (run) + multiple reader (httpserver)
-// unbounded queue, definitely accept results transfer from manager registry map
-// (memory usage is limited by upstream manager <- scheduler)
 
 class ExportManager {
 
-public:
-    struct ExportData {
-        uint64_t scan_id = 0;
-        std::string root_path;
-        bool canceled = false;
-        std::vector<FileEvent> result;
-    };
-
-
 private:
-    MetadataIndex index;
 
-    std::string export_dir;
-    std::string index_dir;
+    std::string db_path;
+    uint16_t WRITE_BATCH_SIZE;
+
+    JobQueue<FileEvent>     result_queue;
+    JobQueue<DeleteTask>    delete_queue;
+
+    std::thread result_thread;
+    std::thread delete_thread;
 
     bool stop_flag = false;
 
-    struct Paths {
-        std::string detail_path;
-        std::string summary_path; 
-    };
+    void write_result_to_db();
+    // export manager: result_thread push, delete_thread consume
+    void mark_deleted_in_db();
 
-    struct IndexLatestState {
-        uint64_t index_version;
-        time_t latest_time;
-
-        IndexLatestState():index_version(0), latest_time(0) {};
-
-        void update(uint64_t version, time_t timestamp) {
-            index_version = version;
-            latest_time = timestamp;
-        }
-    };
-    
-    // map for recording result path
-    std::unordered_map<uint64_t, Paths> export_map;     //key: scan_id
-    std::unordered_map<uint64_t, Paths> index_map;      //key: index_version
-    IndexLatestState current_index;
+    std::unordered_set<uint64_t> exported_map;
     std::mutex map_mtx;
 
-    std::queue<ExportData> result_queue;
-    std::mutex queue_mtx;
-    std::condition_variable cv;
-
-    bool export_result_and_index(ExportData&& data);
-    bool scan_report(ExportData&& data, std::string& result_path, std::string& summary_path);
-    bool index_report(uint64_t version_number, time_t timestamp, \
-                        std::string& detail_path, std::string& summary_path) const;
+    std::function<void(const std::string&)> notify_export_done;
 
 
 public:
-    ExportManager(){};
-    ~ExportManager() {
-        AsyncLogger::logger().debug("~ExportManager destruct");
-        export_map = std::unordered_map<uint64_t, Paths>{};
-        index_map = std::unordered_map<uint64_t, Paths>{};
-        result_queue = std::queue<ExportData>{};
-    }
+    ExportManager();
+    ~ExportManager() {}
 
     // manager api
-    void run();
+    bool start();
     void shutdown();
-    void push_queue(ExportData&& data);
-            // manager -> daemon -> httpserver
+
+
+    void insert_scan_task(ScanTaskRow&& data);
+    void update_scan_finish(uint64_t scan_id, time_t finish_time);
+    void push_result_queue(FileEvent&& event);
+      
     
-    bool set_dir(std::string&& export_dir);
     // bool check_exported(uint64_t scan_id);
     std::vector<bool> check_exported(const std::vector<uint64_t>& scan_ids);
-    bool get_scan_result(uint64_t scan_id, \
-                        std::string& scan_detail_path, std::string& scan_summary_path);
-    bool get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp);
-    bool get_index_result(uint64_t scan_id, \
-                    std::string& index_detail_path, std::string& index_summary_path);
-
+    void set_scheduler_callback(std::function<void(const std::string&)> fn);
 };
