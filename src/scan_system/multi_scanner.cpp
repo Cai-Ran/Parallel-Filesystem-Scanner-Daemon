@@ -53,6 +53,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
 
     FileEvent event;
     const std::string& path = data.path;
+    event.scan_id = data.scan_id;
     event.path = path;
 
 
@@ -62,7 +63,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
         event.node_type = NodeType::UNKNOWN;
         event.modtime = 0;
         event.size = 0;
-        data.context->result.record(std::move(event));
+        manager.record_result(std::move(event));
         return childrens;
     }
 
@@ -71,7 +72,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
         event.node_type = NodeType::LINK;
         event.modtime = stat_buff.st_mtime;
         event.size = stat_buff.st_size;
-        data.context->result.record(std::move(event));
+        manager.record_result(std::move(event));
         return childrens; 
     }
 
@@ -81,7 +82,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
         event.modtime = stat_buff.st_mtime;
         event.size = stat_buff.st_size;
         event.err = {};                //success
-        data.context->result.record(std::move(event));
+        manager.record_result(std::move(event));
         return childrens;
     }
 
@@ -96,7 +97,7 @@ MultiScanner::scan_one_node(const ScanData& data) {
     DIR* dir = opendir(path.c_str());
     if (!dir) {
         event.err = std::error_code(errno, std::generic_category());
-        data.context->result.record(std::move(event));
+        manager.record_result(std::move(event));
         return childrens;
     }
 
@@ -106,14 +107,14 @@ MultiScanner::scan_one_node(const ScanData& data) {
     entry = readdir(dir);
     if (!entry && errno != 0) {
         event.err = std::error_code(errno, std::generic_category());
-        data.context->result.record(std::move(event));
+        manager.record_result(std::move(event));
         closedir(dir);
         return childrens;
     }
 
 
     event.err = {};
-    data.context->result.record(std::move(event));
+    manager.record_result(std::move(event));
 
     while (entry) {
         std::string name = entry->d_name;
