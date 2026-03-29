@@ -1,6 +1,4 @@
 #include <manager.h>
-#include <exporter.h>
-#include <index_reporter.h>
 #include <scheduler.h>
 #include <async_logger.h>
 #include <metrics.h>
@@ -18,10 +16,11 @@ namespace {
 
 Manager::Manager()
     :scanner(*this), 
+    export_manager(),
     scan_pool(JobQueue<ScanData>::QueueType::Lifo,
             make_metrics(),
             Config::cfg().manager().scan_queue_max_size,
-            Config::cfg().manager().scan_pool_num_threads) 
+            Config::cfg().manager().scan_pool_num_threads)
     {
         Metrics::measurement().const_scan_job_pool_num_threads = Config::cfg().manager().scan_pool_num_threads;
         Metrics::measurement().const_scan_job_queue_size = Config::cfg().manager().scan_queue_max_size;
@@ -36,21 +35,14 @@ Manager::start() {
             scanner.worker_job(std::move(data));
         }
     );
-    if (!pool_success)   return;
+    if (!pool_success)      return;
 
 
-    try {
-        export_manager_thread = std::thread(
-            [&export_manager = this->export_manager]{
-                export_manager.run();
-            }
-        );
-    } catch (...) {
-        AsyncLogger::logger().error("Manager::run - cannot start export_manager");
+    bool export_success = export_manager.start();
+    if (!export_success) {
         scan_pool.shutdown();
         return;
     }
-
 }
 
 
@@ -94,6 +86,7 @@ Manager::start_new_scan(uint64_t scan_id, std::string root_path, bool& queue_ful
         return false;
     }
 
+    AsyncLogger::logger().debug("start new scan");
     return true;
 }
 
@@ -116,9 +109,12 @@ Manager::wait_to_finish(std::uint64_t scan_id) {
 
 void
 Manager::set_scheduler_callback(std::function<void(uint64_t scan_id)> fn1,
-                            std::function<void()> fn2) {
+                                std::function<void()> fn2,
+                                std::function<void(const std::string& root)> fn3) 
+{
     notify_scan_finished = std::move(fn1);
     notify_dispatch_available = std::move(fn2);
+    export_manager.set_scheduler_callback(std::move(fn3));
 }
 
 
@@ -140,6 +136,12 @@ Manager::clean_up(uint64_t scan_id) {
 // ========================
 // SCANNER API  
 // ========================
+
+void 
+Manager::record_result(FileEvent&& event) {
+    export_manager.push_result_queue(std::move(event));
+}
+
 
 JobQueue<ScanData>::SubmitResult
 Manager::task_on_job_submit(ScanData& data, bool is_root) {
@@ -166,32 +168,71 @@ Manager::task_on_job_submit(ScanData& data, bool is_root) {
     return result;
 }
 
+
 void
 Manager::task_on_job_finish(uint64_t scan_id, std::shared_ptr<ScanContext> ctx) {
+    // AsyncLogger::logger().debug("task_on_job_finish: unfinished_jobs- " + std::to_string(ctx->unfinished_jobs.load()) +"\n");
     if (ctx->unfinished_jobs.fetch_sub(1)==1) {
+        AsyncLogger::logger().debug("task_on_job_finish: finish scan task");
+
+        time_t scan_finish_time = std::time(nullptr);
+
         manager_cv.notify_all();
 
-        if (notify_scan_finished) {
-            notify_scan_finished(scan_id);
-            ExportManager::ExportData result;
-            if (!transfer_result(scan_id, result))
-                AsyncLogger::logger().error("Manager::task_on_job_finish - failed to transfer data to ExportManager");
-            else
-                export_manager.push_queue(std::move(result));
-                // clean_up(scan_id);           //erase in transfer_result
-        }
-        else 
+        if (!notify_scan_finished) 
             AsyncLogger::logger().error("Manager::task_on_job_finish - must set scheduler callback before starting manager!");
-    }
+        else    notify_scan_finished(scan_id);
+
+        // push sentinal to export system queue
+        Sentinel end_signal;
+        end_signal.is_canceled = ctx->canceled.load();
+        end_signal.is_sentinel = true;
+
+        FileEvent fake;
+        fake.end_signal = end_signal;
+        fake.scan_id = scan_id;
+
+        ScanTaskRow row;
+
+        {
+            std::lock_guard<std::mutex> lock(registry_mtx);
+
+            std::unordered_map<std::uint64_t, ScanTask>::iterator it = registry.find(scan_id);
+            if (it == registry.end()) {
+                AsyncLogger::logger().error("Manager::task_on_job_finish - scan id not registered");
+            }
+            else {
+
+                row.scan_id = it->first;
+                row.start_time = it->second.start_time;
+                row.finish_time = scan_finish_time;
+                row.submit_root = it->second.root_path;
+                row.end_state = (it->second.context->canceled.load()) ? RequestState::CANCELED : RequestState::DONE;
+
+                registry.erase(it);
+            }
+        }
+
+        if (row.scan_id != 0) {
+            fake.path = row.submit_root;
+            export_manager.push_result_queue(std::move(fake));
+
+            try {
+            export_manager.insert_scan_task(std::move(row));
+            } 
+            catch (const std::exception& e) {
+                AsyncLogger::logger().error("Manager::task_on_job_finish - export_manager.insert_scan_task failed: " + std::string(e.what()));
+            }
+        }
+   }
     /*
         notify scheduler job_queue is not full, scheduler can try to push root_path
         ideally this should happen while job_queue pop(), but it is encapsulated in thread pool
         so notify when one job finished
     */
     // exchange = load + store (1.return old 2.set new)
-    if (notify_dispatch_available && dispatch_failed.exchange(false)) {
+    if (notify_dispatch_available && dispatch_failed.exchange(false)) 
         notify_dispatch_available();
-    }
         
     Metrics::measurement().scan_jobs_unfinished.fetch_sub(1);
 }
@@ -209,9 +250,6 @@ Manager::shutdown() {
     scan_pool.shutdown();
 
     export_manager.shutdown();
-
-    if (export_manager_thread.joinable())
-        export_manager_thread.join();
 
 }
 
@@ -235,39 +273,6 @@ Manager::cancel_scan(uint64_t scan_id) {
 // EXPORT RESULT
 // =====================
 
-bool
-Manager::transfer_result(uint64_t scan_id, ExportManager::ExportData& data) {
-
-    data.scan_id = scan_id;
-
-    {
-        std::lock_guard<std::mutex> lock(registry_mtx);
-        std::unordered_map<uint64_t, ScanTask>::iterator it = registry.find(scan_id);
-        if (it != registry.end()) {
-            if (it->second.context->unfinished_jobs.load() != 0) {
-                AsyncLogger::logger().error("Manager::transfer_result - cannot freeze scan task: scan is not finished");
-                return false;
-            }
-            data.root_path = it->second.root_path;
-            data.canceled = it->second.context->canceled.load();
-            data.result = it->second.context->result.freeze_move();
-            AsyncLogger::logger().debug("Manager::transfer_result - entries: " + std::to_string(data.result.size()));
-            registry.erase(it);  
-            AsyncLogger::logger().debug("Manager::transfer_result registry.erased");
-        } else {
-            AsyncLogger::logger().error("Manager::transfer_result - scan_id not found in registry; cannot export");
-            return false;
-        }
-    }
-    
-
-    return true;
-}
-
-bool
-Manager::set_export_dir(std::string&& export_dir) {
-    return export_manager.set_dir(std::move(export_dir));
-}
 
 // bool
 // Manager::check_exported(uint64_t scan_id) {
@@ -278,26 +283,5 @@ std::vector<bool>
 Manager::check_exported(const std::vector<uint64_t>& scan_ids) {
     return export_manager.check_exported(scan_ids);
 }
-
-bool 
-Manager::export_report(uint64_t scan_id,\
-    std::string& result_path, std::string& summary_path) 
-{
-    return export_manager.get_scan_result(scan_id, result_path, summary_path);
-}
-
-bool
-Manager::get_newest_index(uint64_t& version_number, time_t& snapshot_timestamp) {
-    return export_manager.get_newest_index(version_number, snapshot_timestamp);
-}
-
-bool 
-Manager::index_report(uint64_t scan_id,\
-    std::string& result_path, std::string& summary_path) 
-{
-    return export_manager.get_index_result(scan_id, result_path, summary_path);
-}
-
-
 
 
