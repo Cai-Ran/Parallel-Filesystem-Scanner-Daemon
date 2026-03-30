@@ -24,7 +24,7 @@
   │  (LIFO JobQueue)   │◄─┤             │  │  (background thread) │
   │                    │  │  worker_job │  │                      │
   │  N worker threads  │─►│  per node   │  │  consumes result     │
-  └────────────────────┘  └──────┬──────┘  │  writes report files │
+  └────────────────────┘  └──────┬──────┘  │  writes to SQLite DB │
                                  │         └──────────────────────┘
                     ┌────────────┴──────────────┐
                     │                           │
