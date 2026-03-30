@@ -1,9 +1,7 @@
 #pragma once
 #include <string>
 #include <vector>
-
-#include <metadata_index.h>
-#include <scan_data.h>
+#include <scan_types.h>
 
 class Manager;              //forward declare; circular include is forbidden
 
