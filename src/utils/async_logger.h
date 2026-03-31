@@ -27,18 +27,18 @@
 class AsyncLogger {
     private:
 
-        enum LogLevel {
+        enum LogLevel: uint8_t {
             Info,
             Warn,
             Debug,
             Error
         };
-
+        //order format to match padding
         struct LogItem {
-            LogLevel level;
-            std::string msg;
             time_t timestamp;
             std::thread::id tid;    //for debug
+            std::string msg;
+            LogLevel level;
         };
 
         size_t MAX_QUEUE_SIZE;
