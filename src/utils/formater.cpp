@@ -107,5 +107,12 @@ namespace formater {
         return std::string(buf);
     }
 
+    bool paths_overlap(const std::string& a, const std::string& b) {
+        if (a == b)                 return true;
+        
+        return (a.substr(0, b.size()+1) == b + "/") ||
+               (b.substr(0, a.size()+1) == a + "/"); 
+    }
+
 };
 
