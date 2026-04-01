@@ -89,14 +89,27 @@ Config::load(const std::string& config_file) {
                 else if (key == "queue_max_size")                                       
                     asynclogger_.queue_max_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
             } else if (sec == "exportmanager" || sec == "export_manager") {
-                if (key == "export_dir" || key == "result_dir")                         exportmanager_.export_dir = value;
-                else if (key == "index_dir")                                            exportmanager_.index_dir = value;
+                if (key == "result_que_size" || key == "result_queue_size")                         
+                    exportmanager_.result_que_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
+                else if (key == "delete_que_size" || key == "delete_queue_size")                                            
+                    exportmanager_.delete_que_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
             } else if (sec == "manager") {
                 if (key == "scan_queue_max_size" || key == "queue_max_size")            
                     manager_.scan_queue_max_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
                 else if (key == "scan_pool_num_threads" || key == "pool_num_threads")   
                     manager_.scan_pool_num_threads = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
-            } else if (sec == "threadpool") {
+            } else if (sec == "db" || sec == "DB") {
+                if (key == "db_path" || key == "path")                                  db_.db_path = value;
+                else if (key == "batch_size" || key == "batch")
+                    db_.batch_size = clamp(std::stoull(value), std::numeric_limits<uint16_t>::min(), std::numeric_limits<uint16_t>::max());
+                else if (key == "fsync" || key == "synchronous")                        db_.fsync = (to_lower(value) == "false") ? false : true;  
+            }                    
+
+                    
+
+
+
+            else if (sec == "threadpool") {
                 if (key == "num_threads" || key == "pool_num_threads") {
                     const size_t n = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
                     manager_.scan_pool_num_threads = n;
