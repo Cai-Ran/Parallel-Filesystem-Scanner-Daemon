@@ -11,10 +11,10 @@ struct DaemonConfig {
 // =======================
 
 struct HttpServerConfig {
-    uint16_t server_port = 8080;
-    std::string frontend_path = "./web/index.html";
     size_t fd_queue_max_size = 1024;
     size_t fd_pool_num_threads = 4;
+    std::string frontend_path = "./web/index.html";
+    uint16_t server_port = 8080;
 };
 
 struct ManagerConfig {
@@ -27,20 +27,25 @@ struct ManagerConfig {
 // ==============================
 
 struct SchedulerConfig {
-    int max_concurrent_scan = 3;
     size_t queue_max_size = 64;
+    int max_concurrent_scan = 3;
 };
 
 struct AsyncLoggerConfig {
-    std::string log_dir;
     size_t queue_max_size = 8192;
+    std::string log_dir;
 };
 
 struct ExportManagerConfig {
-    std::string export_dir;
-    std::string index_dir;
+    size_t result_que_size = 8192;
+    size_t delete_que_size = 64;
 };
 
+struct DBConfig {
+    std::string db_path;
+    uint16_t batch_size = 16384;
+    bool fsync = false;
+};
 
 
 class Config {
@@ -69,9 +74,11 @@ class Config {
         DaemonConfig        daemon_;
         HttpServerConfig    httpserver_;
         SchedulerConfig     scheduler_;
+        ManagerConfig       manager_;
         AsyncLoggerConfig   asynclogger_;
         ExportManagerConfig exportmanager_;
-        ManagerConfig       manager_;
+        DBConfig            db_;
+        
 
         template <typename F, typename T>
         T clamp(F old, T new_min, T new_max) {
@@ -83,17 +90,12 @@ class Config {
     public:
         bool load(const std::string& file_path);
 
-        const DaemonConfig&
-            daemon() const {        return daemon_; }
-        const HttpServerConfig& 
-            httpserver() const {    return httpserver_; }
-        const SchedulerConfig& 
-            scheduler() const {     return scheduler_; }
-        const AsyncLoggerConfig&
-            asynclogger() const {    return asynclogger_; }
-        const ExportManagerConfig&
-            exportmanager() const { return exportmanager_; }
-        const ManagerConfig&
-            manager() const { return manager_; }
+        const DaemonConfig&         daemon()        const { return daemon_;         }
+        const HttpServerConfig&     httpserver()    const { return httpserver_;     }
+        const SchedulerConfig&      scheduler()     const { return scheduler_;      }
+        const AsyncLoggerConfig&    asynclogger()   const { return asynclogger_;    }
+        const ExportManagerConfig&  exportmanager() const { return exportmanager_;  }
+        const ManagerConfig&        manager()       const { return manager_;        }
+        const DBConfig&             db()            const { return db_;             }
 };
 
