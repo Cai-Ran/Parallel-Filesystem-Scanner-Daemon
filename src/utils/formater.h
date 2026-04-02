@@ -4,13 +4,6 @@
 #include <string>
 
 
-enum class EventState: uint8_t{
-    Alive,
-    Error,
-    Deleted,
-    Canceled
-};
-
 struct JsonContent {
     std::string path;
     NodeType node_type;
@@ -33,6 +26,8 @@ namespace formater {
     std::string format_state(EventState state);
 
     std::string format_time(const time_t t);
+
+    bool paths_overlap(const std::string& a, const std::string& b);
 
 };
 
