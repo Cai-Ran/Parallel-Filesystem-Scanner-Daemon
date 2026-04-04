@@ -82,10 +82,9 @@ Daemon::run() {
             Metrics::measurement().scan_running.load() == 0         &&
             Metrics::measurement().scan_pending.load() == 0         &&
             Metrics::measurement().scan_jobs_unfinished.load() == 0 &&
-            Metrics::measurement().export_result_pending.load() == 0&&
-            Metrics::measurement().export_result_running.load() == 0&&
-            Metrics::measurement().export_delete_pending.load() == 0&&
-            Metrics::measurement().export_delete_running.load() == 0
+            Metrics::measurement().export_pending.load() == 0       &&
+            Metrics::measurement().export_running.load() == 0       &&
+            Metrics::measurement().export_finalizing_running.load() == 0
         )
         {
             
