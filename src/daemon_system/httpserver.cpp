@@ -538,8 +538,7 @@ HttpServer::response_metrics(int fd) {
         ",\"const_scan_job_queue_size\":" + std::to_string(metrics.const_scan_job_queue_size) +
         ",\"const_request_pool_num_threads\":" + std::to_string(metrics.const_request_pool_num_threads) +
         ",\"const_request_queue_size\":" + std::to_string(metrics.const_request_queue_size) +
-        ",\"const_result_que_size\":" + std::to_string(metrics.const_result_que_size) +
-        ",\"const_delete_que_size\":" + std::to_string(metrics.const_delete_que_size) +
+        ",\"const_export_que_size\":" + std::to_string(metrics.const_export_que_size) +
         ",\"const_logger_pending_queue_size\":" + std::to_string(metrics.const_logger_pending_queue_size) +
         ",\"scan_jobs_unfinished\":" + std::to_string(metrics.scan_jobs_unfinished.load()) +
         ",\"scan_jobs_submitted\":" + std::to_string(metrics.scan_jobs_submitted.load()) +
@@ -548,12 +547,11 @@ HttpServer::response_metrics(int fd) {
         ",\"request_jobs_submitted\":" + std::to_string(metrics.request_jobs_submitted.load()) +
         ",\"request_jobs_failed\":" + std::to_string(metrics.request_jobs_failed.load()) +
         ",\"request_jobs_queued\":" + std::to_string(metrics.request_jobs_queued.load()) +
-        ",\"export_result_pending\":" + std::to_string(metrics.export_result_pending.load()) +
-        ",\"export_result_running\":" + std::to_string(metrics.export_result_running.load()) +
-        ",\"export_result_finished\":" + std::to_string(metrics.export_result_finished.load()) +
-        ",\"export_delete_pending\":" + std::to_string(metrics.export_delete_pending.load()) +
-        ",\"export_delete_running\":" + std::to_string(metrics.export_delete_running.load()) +
-        ",\"export_delete_finished\":" + std::to_string(metrics.export_delete_finished.load()) +
+        ",\"export_pending\":" + std::to_string(metrics.export_pending.load()) +
+        ",\"export_running\":" + std::to_string(metrics.export_running.load()) +
+        ",\"export_finished\":" + std::to_string(metrics.export_finished.load()) +
+        ",\"export_finalizing_running\":" + std::to_string(metrics.export_finalizing_running.load()) +
+        ",\"export_finalizing_done\":" + std::to_string(metrics.export_finalizing_done.load()) +
         ",\"logger_pending\":" + std::to_string(metrics.logger_pending.load()) +
         ",\"logger_finished\":" + std::to_string(metrics.logger_finished.load()) +
         ",\"logger_fallback\":" + std::to_string(metrics.logger_fallback.load()) +
