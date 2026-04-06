@@ -58,7 +58,7 @@ IndexReader::IndexReader(DatabaseConnection& db) : db_(db){
 
         "SELECT path, msize, mtime, node_type, state, err_msg "
         "FROM index_current "
-        "WHERE path GLOB ? "
+        "WHERE path LIKE ? "
         "LIMIT ? OFFSET ? ",
 
         -1,
@@ -173,14 +173,13 @@ IndexReader::group_by_folder_in_snd_layer(const std::string& root,
     while (sqlite3_step(stmt_group_by_folder_) == SQLITE_ROW) {
         
         NodeType nodetype =     static_cast<NodeType>(sqlite3_column_int  (stmt_group_by_folder_, 2));
-        if (nodetype == NodeType::DIR)  continue;
 
         std::string path  =              (const char*)sqlite3_column_text (stmt_group_by_folder_, 0);
         std::string snd_layer = get_snd_layer(path, root);
-        if (path == snd_layer)          continue;
-
+        uint64_t msize = static_cast<uint64_t>(sqlite3_column_int64(stmt_group_by_folder_, 1));
+        if (path == snd_layer && nodetype != NodeType::DIR)          continue;
         
-        msize_map[snd_layer] += static_cast<uint64_t>(sqlite3_column_int64(stmt_group_by_folder_, 1));
+        msize_map[snd_layer] += msize;
     }
 
     sqlite3_reset(stmt_group_by_folder_);
@@ -213,9 +212,11 @@ IndexReader::search(std::string&& path, int limit, int offset,
 {
     std::string normalized = std::move(path);
     if (normalized.size() > 1 && normalized.back() == '/') normalized.pop_back();
-    std::string glob_pattern = normalized + "/*";
+    if (normalized.empty())     return;
+    // std::string glob_pattern = normalized + "/*";
+    std::string like_pattern = "%" + normalized + "%";
 
-    sqlite3_bind_text   (stmt_search_, 1, glob_pattern.c_str(), -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text   (stmt_search_, 1, like_pattern.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int    (stmt_search_, 2, limit);
     sqlite3_bind_int    (stmt_search_, 3, offset);
 
