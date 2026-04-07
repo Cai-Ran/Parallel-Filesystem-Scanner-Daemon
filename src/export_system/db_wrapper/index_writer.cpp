@@ -1,4 +1,31 @@
 #include "index_writer.h"
+#include "async_logger.h"
+#include <thread>
+#include <chrono>
+
+namespace {
+    bool step_write_done(sqlite3_stmt* stmt, sqlite3* db, const char* op_name, int max_retries = 3) {
+        int rc = SQLITE_ERROR;
+        for (int i = 0; i <= max_retries; ++i) {
+            rc = sqlite3_step(stmt);
+            if (rc == SQLITE_DONE) return true;
+            if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            break;
+        }
+
+        AsyncLogger::logger().error(
+            std::string(op_name) +
+            " sqlite3_step failed rc=" + std::to_string(rc) +
+            " ext_rc=" + std::to_string(sqlite3_extended_errcode(db)) +
+            " err=" + std::string(sqlite3_errstr(rc)) +
+            " msg=" + std::string(sqlite3_errmsg(db))
+        );
+        return false;
+    }
+}
 
 IndexWriter::IndexWriter(DatabaseConnection& db) : db_(db) {
 
@@ -20,6 +47,10 @@ IndexWriter::IndexWriter(DatabaseConnection& db) : db_(db) {
     );
 
     //  Correlated Subquery O(K log N)
+    // NOTE:
+    // Do not use scan_id ordering here. scan_id is submit order, while DB writes follow
+    // completion order under concurrency. We only want "rows under root not touched by
+    // current scan", i.e. scan_id != current scan_id.
     sqlite3_prepare_v2(
         db_.get(),
         "INSERT INTO index_history "
@@ -27,7 +58,7 @@ IndexWriter::IndexWriter(DatabaseConnection& db) : db_(db) {
         "SELECT ?,      path, node_type, mtime, msize, ?,     ''     , extension  "
         "FROM index_current "
         "WHERE path GLOB ? "
-        "AND scan_id < ? ",
+        "AND scan_id != ? ",
         -1,
         &stmt_mark_deleted_history_,
         nullptr
@@ -47,7 +78,7 @@ IndexWriter::IndexWriter(DatabaseConnection& db) : db_(db) {
         db_.get(),
         "DELETE FROM index_current "
         "WHERE path GLOB ? "
-        "AND scan_id < ? ",
+        "AND scan_id != ? ",
         -1,
         &stmt_delete_current_,
         nullptr
@@ -66,7 +97,7 @@ IndexWriter::~IndexWriter() {
 
 
 void 
-IndexWriter::begin_transaction() {   db_.exec("BEGIN;");}
+IndexWriter::begin_transaction() {   db_.exec("BEGIN IMMEDIATE;");}
 
 void 
 IndexWriter::end_transaction() {    db_.exec("COMMIT;");}
@@ -105,7 +136,7 @@ IndexWriter::upsert(const FileEvent& row) {
     sqlite3_bind_text   (stmt_upsert_current_, 7, err_msg.c_str(),   -1, SQLITE_TRANSIENT);
     sqlite3_bind_text   (stmt_upsert_current_, 8, extension.c_str(), -1, SQLITE_TRANSIENT);
 
-    sqlite3_step (stmt_upsert_current_);
+    step_write_done(stmt_upsert_current_, db_.get(), "IndexWriter::upsert index_current");
     sqlite3_reset(stmt_upsert_current_);
 
 
@@ -131,7 +162,7 @@ IndexWriter::upsert(const FileEvent& row) {
     sqlite3_bind_text   (stmt_upsert_history_, 7, err_msg.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_text   (stmt_upsert_history_, 8, extension.c_str(), -1, SQLITE_TRANSIENT);
 
-    sqlite3_step (stmt_upsert_history_);
+    step_write_done(stmt_upsert_history_, db_.get(), "IndexWriter::upsert index_history");
     sqlite3_reset(stmt_upsert_history_);
 
     // db_.exec("COMMIT;");
@@ -155,18 +186,27 @@ IndexWriter::mark_deleted(DeleteTask info) {
     sqlite3_bind_text   (stmt_mark_deleted_history_, 3, glob_pattern.c_str(), -1, SQLITE_TRANSIENT);
     sqlite3_bind_int64  (stmt_mark_deleted_history_, 4, static_cast<int64_t>(info.scan_id));
 
-    sqlite3_step (stmt_mark_deleted_history_);
+    step_write_done(stmt_mark_deleted_history_, db_.get(), "IndexWriter::mark_deleted insert_deleted_history");
     sqlite3_reset(stmt_mark_deleted_history_);
 
-    // DELETE unvisited paths from index_current
+    // For canceled scans we must keep index_current unchanged as the baseline,
+    // otherwise the next full scan will falsely report "Changed" for paths
+    // that were only missing due to cancellation.
+    if (!info.canceled) {
+        // DELETE unvisited paths from index_current
+        sqlite3_bind_text   (stmt_delete_current_, 1, glob_pattern.c_str(), -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64  (stmt_delete_current_, 2, static_cast<int64_t>(info.scan_id));
 
-    sqlite3_bind_text   (stmt_delete_current_, 1, glob_pattern.c_str(), -1, SQLITE_TRANSIENT);
-    sqlite3_bind_int64  (stmt_delete_current_, 2, static_cast<int64_t>(info.scan_id));
-
-    sqlite3_step (stmt_delete_current_);
-    sqlite3_reset(stmt_delete_current_);
+        step_write_done(stmt_delete_current_, db_.get(), "IndexWriter::mark_deleted delete_current");
+        sqlite3_reset(stmt_delete_current_);
+    }
 
     db_.exec("COMMIT;");
+    int changed = sqlite3_changes(db_.get());
+    AsyncLogger::logger().debug("mark_deleted scan_id=" + std::to_string(info.scan_id) 
+        + " deleted=" + std::to_string(changed));
+
+
 }
 
 // ===========
