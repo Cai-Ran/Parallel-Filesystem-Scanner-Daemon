@@ -1,4 +1,31 @@
 #include "scan_diff.h"
+#include "async_logger.h"
+
+#include <thread>
+#include <chrono>
+
+namespace {
+    bool step_done_with_retry(sqlite3_stmt* stmt, sqlite3* db, const char* op_name, int max_retries = 3) {
+        int rc = SQLITE_ERROR;
+        for (int i = 0; i <= max_retries; ++i) {
+            rc = sqlite3_step(stmt);
+            if (rc == SQLITE_DONE) return true;
+            if (rc == SQLITE_BUSY || rc == SQLITE_LOCKED) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+                continue;
+            }
+            break;
+        }
+
+        AsyncLogger::logger().error(
+            std::string(op_name) +
+            " sqlite3_step failed rc=" + std::to_string(rc) +
+            " err=" + std::string(sqlite3_errstr(rc)) +
+            " msg=" + std::string(sqlite3_errmsg(db))
+        );
+        return false;
+    }
+}
 
 
 
@@ -52,7 +79,7 @@ ScanDiff::~ScanDiff() {
 
 
 void 
-ScanDiff::begin_transaction() {   db_.exec("BEGIN;");}
+ScanDiff::begin_transaction() {   db_.exec("BEGIN IMMEDIATE;");}
 
 void 
 ScanDiff::end_transaction() {    db_.exec("COMMIT;");}
@@ -68,7 +95,7 @@ ScanDiff::upsert(int64_t scan_id, std::string&& path, int diff_state, int64_t ol
     sqlite3_bind_int    (stmt_upsert_, 3, diff_state);
     sqlite3_bind_int64  (stmt_upsert_, 4, old_size);
 
-    sqlite3_step (stmt_upsert_);
+    step_done_with_retry(stmt_upsert_, db_.get(), "ScanDiff::upsert");
     sqlite3_reset(stmt_upsert_);
 
     // db_.exec("COMMIT;");
