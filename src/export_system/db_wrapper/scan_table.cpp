@@ -1,4 +1,20 @@
 #include "scan_table.h"
+#include "async_logger.h"
+
+namespace {
+    bool step_write_done(sqlite3_stmt* stmt, sqlite3* db, const char* op_name) {
+        int rc = sqlite3_step(stmt);
+        if (rc == SQLITE_DONE) return true;
+
+        AsyncLogger::logger().error(
+            std::string(op_name) +
+            " sqlite3_step failed rc=" + std::to_string(rc) +
+            " err=" + std::string(sqlite3_errstr(rc)) +
+            " msg=" + std::string(sqlite3_errmsg(db))
+        );
+        return false;
+    }
+}
 
 ScanTable::ScanTable(DatabaseConnection& db) : db_(db) {
 
@@ -66,7 +82,7 @@ ScanTable::ScanTable(DatabaseConnection& db) : db_(db) {
         "    COUNT(CASE WHEN node_type = 1 THEN 1 END), "
         "    COUNT(CASE WHEN node_type = 2 THEN 1 END), "
         "    COUNT(CASE WHEN node_type = 3 THEN 1 END), "
-        "      SUM(CASE WHEN node_type = 2 THEN msize ELSE 0 END) "
+        "    SUM(msize) "
         "FROM index_current "
         "WHERE scan_id = ? ",
         -1,
@@ -95,7 +111,7 @@ ScanTable::upsert(const ScanTaskRow& row) {
     sqlite3_bind_int64  (stmt_upsert_, 4, static_cast<int64_t>(row.finish_time));
     sqlite3_bind_int    (stmt_upsert_, 5, static_cast<int>    (row.end_state));
 
-    sqlite3_step (stmt_upsert_);
+    step_write_done(stmt_upsert_, db_.get(), "ScanTable::upsert");
     sqlite3_reset(stmt_upsert_);
 
     db_.exec("COMMIT;");
@@ -109,7 +125,7 @@ ScanTable::update_end(uint64_t scan_id, uint64_t finish_time) {
     sqlite3_bind_int64  (stmt_finish_, 2, static_cast<int64_t>(scan_id));
     sqlite3_bind_int64  (stmt_finish_, 1, static_cast<int64_t>(finish_time));
 
-    sqlite3_step(stmt_finish_);
+    step_write_done(stmt_finish_, db_.get(), "ScanTable::update_end");
     sqlite3_reset(stmt_finish_);
 
     db_.exec("COMMIT;");
@@ -177,7 +193,7 @@ ScanTable::get_max_id() {
 
 void 
 ScanTable::upsert_count(uint64_t scan_id) {
-    
+    db_.exec("BEGIN IMMEDIATE;");   // force fresh snapshot + exclusive write
     sqlite3_bind_int64  (stmt_get_count_, 1, scan_id);
 
     int dir_count = 0, file_count = 0, link_count = 0;
@@ -191,13 +207,23 @@ ScanTable::upsert_count(uint64_t scan_id) {
     }
     sqlite3_reset(stmt_get_count_);
 
+    AsyncLogger::logger().debug(
+        "upsert_count scan_id=" + std::to_string(scan_id) +
+        " dir=" + std::to_string(dir_count) +
+        " file=" + std::to_string(file_count) +
+        " link=" + std::to_string(link_count)
+    );
+
+
     sqlite3_bind_int    (stmt_update_cnt_, 1, dir_count);
     sqlite3_bind_int    (stmt_update_cnt_, 2, file_count);
     sqlite3_bind_int    (stmt_update_cnt_, 3, link_count);
     sqlite3_bind_int64  (stmt_update_cnt_, 4, total_size);
     sqlite3_bind_int64  (stmt_update_cnt_, 5, scan_id);
 
-    sqlite3_step (stmt_update_cnt_);
+    step_write_done(stmt_update_cnt_, db_.get(), "ScanTable::upsert_count");
     sqlite3_reset(stmt_update_cnt_);
+
+    db_.exec("COMMIT;");
 
 }
