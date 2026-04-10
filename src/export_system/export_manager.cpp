@@ -10,14 +10,9 @@
 
 
 namespace {
-    JobQueue<FileEvent>::QueueMetrics result_queue_metrics() {
+    JobQueue<FileEvent>::QueueMetrics queue_metrics() {
         JobQueue<FileEvent>::QueueMetrics metrics{};
-        metrics.queued_number = &Metrics::measurement().export_result_pending;
-        return metrics;
-    }
-    JobQueue<DeleteTask>::QueueMetrics delete_queue_metrics() {
-        JobQueue<DeleteTask>::QueueMetrics metrics{};
-        metrics.queued_number = &Metrics::measurement().export_delete_pending;
+        metrics.queued_number = &Metrics::measurement().export_pending;
         return metrics;
     }
 };
@@ -26,26 +21,20 @@ ExportManager::ExportManager()
     : db_path(Config::cfg().db().db_path),
       WRITE_BATCH_SIZE(Config::cfg().db().batch_size),
       result_queue(
-        JobQueue<FileEvent>::Fifo, result_queue_metrics(), 
-        Config::cfg().exportmanager().result_que_size),
-      delete_queue(
-        JobQueue<DeleteTask>::Fifo, delete_queue_metrics(), 
-        Config::cfg().exportmanager().delete_que_size)
+        JobQueue<FileEvent>::Fifo, queue_metrics(), 
+        Config::cfg().exportmanager().que_size)
     {
-        Metrics::measurement().const_result_que_size = Config::cfg().exportmanager().result_que_size;
-        Metrics::measurement().const_delete_que_size = Config::cfg().exportmanager().delete_que_size;
+        Metrics::measurement().const_export_que_size = Config::cfg().exportmanager().que_size;
     }
 
 
 bool
 ExportManager::start() {
 
-    if (result_thread.joinable() || delete_thread.joinable())
+    if (result_thread.joinable())
         return true;
 
     // Pre-create all tables with a single connection before launching threads.
-    // Without this, both threads race to set WAL mode to create a fresh database file
-    // and one hits SQLITE_BUSY -> uncaught std::runtime_error -> std::terminate.
     try {
         DatabaseConnection db_con(db_path);
         ScanTable    init_scan(db_con);
@@ -79,7 +68,6 @@ ExportManager::start() {
 
     try {
         result_thread = std::thread(&ExportManager::write_result_to_db, this);
-        delete_thread = std::thread(&ExportManager::mark_deleted_in_db, this);
 
     } catch (const std::exception& e) {
         AsyncLogger::logger().error("ExportManager::start() - create thread failed");
@@ -95,23 +83,17 @@ void
 ExportManager::shutdown() {
     stop_flag = true;
 
-    //close delete queue first to prevent result thread blocking
     result_queue.shutdown();
     if (result_thread.joinable())
         result_thread.join();
-
-    delete_queue.shutdown();
-    if (delete_thread.joinable())
-        delete_thread.join();
 
 }
 
 
 void 
 ExportManager::insert_scan_task(ScanTaskRow&& data) {
-    DatabaseConnection db_con(db_path);
-    ScanTable scan_table(db_con);
-    scan_table.upsert(data);
+    std::lock_guard<std::mutex> lock(pending_scan_rows_mtx);
+    pending_scan_rows[data.scan_id] = std::move(data);
 }
 
 // we actually insert to db at end of scan; update_scan_finish unused
@@ -139,8 +121,8 @@ ExportManager::write_result_to_db() {
         std::function<void()> commit_batch = [&]() {
             if (batch_count > 0) {
                 writer.end_transaction();
-                Metrics::measurement().export_result_running.fetch_sub(batch_count);
-                Metrics::measurement().export_result_finished.fetch_add(batch_count);
+                Metrics::measurement().export_running.fetch_sub(batch_count);
+                Metrics::measurement().export_finished.fetch_add(batch_count);
                 batch_count = 0;
             }
         };
@@ -152,9 +134,7 @@ ExportManager::write_result_to_db() {
         
             if (result.end_signal.is_sentinel) {
                 commit_batch();
-                
-                DeleteTask task(result.scan_id, result.path, result.end_signal.is_canceled);
-                delete_queue.push(std::move(task));
+                finalize_scan(db_con, result, writer);
                 continue;
             }
 
@@ -162,7 +142,7 @@ ExportManager::write_result_to_db() {
                 writer.begin_transaction();
             }
 
-            Metrics::measurement().export_result_running.fetch_add(1);
+            Metrics::measurement().export_running.fetch_add(1);
             writer.upsert(result);
             batch_count++;
 
@@ -170,48 +150,53 @@ ExportManager::write_result_to_db() {
                 commit_batch();
             }
 
-            // Metrics::measurement().export_result_running.fetch_sub(1);
-            // Metrics::measurement().export_result_finished.fetch_add(1);
+            // Metrics::measurement().export_running.fetch_sub(1);
+            // Metrics::measurement().export_finished.fetch_add(1);
         }
+        commit_batch();
 
     } catch (const std::exception& e) {
         AsyncLogger::logger().error("write_result_to_db - fatal: " + std::string(e.what()));
-        delete_queue.shutdown();    //not to block delete_thread
     }
 }
 
 
-void 
-ExportManager::mark_deleted_in_db() {
+void
+ExportManager::finalize_scan(DatabaseConnection& db_con, const FileEvent& event, IndexWriter& writer) {
+
+    Metrics::measurement().export_finalizing_running.fetch_add(1);
+
+    IndexReader reader(db_con);
+    ScanDiff differ(db_con);
+    ScanTable scan_writer(db_con);
+
+    ScanTaskRow row = get_scan_task(event);
+
     try {
-        DatabaseConnection db_con(db_path);
-        IndexWriter writer(db_con);
-        IndexReader reader(db_con);
-        ScanDiff    differ(db_con);
-        ScanTable scan_writer(db_con);
+        scan_writer.upsert(row);
+        DeleteTask task(event.scan_id, row.submit_root, event.end_signal.is_canceled);
+        writer.mark_deleted(task);
+        reader.find_scan_diff_and_upsert_scandiff(event.scan_id, differ);
+        scan_writer.upsert_count(event.scan_id);
 
-        DeleteTask delete_task;
-        while (delete_queue.pop(delete_task)) {
-
-            Metrics::measurement().export_delete_running.fetch_add(1);
-
-            writer.mark_deleted(delete_task);
-            reader.find_scan_diff_and_upsert_scandiff(delete_task.scan_id, differ);
-            scan_writer.upsert_count(delete_task.scan_id);
-
-            {   
-                std::lock_guard<std::mutex> lock(map_mtx);
-                exported_map.emplace(delete_task.scan_id);
-            }
-            
-            notify_export_done(delete_task.submit_root);
-
-            Metrics::measurement().export_delete_running.fetch_sub(1);
-            Metrics::measurement().export_delete_finished.fetch_add(1);
+        {
+            std::lock_guard<std::mutex> lock(map_mtx);
+            exported_map.emplace(event.scan_id);
         }
+
+        
+        notify_export_done(row.submit_root);
+
+        Metrics::measurement().export_finalizing_done.fetch_add(1);
+        
     } catch (const std::exception& e) {
-        AsyncLogger::logger().error("mark_deleted_in_db - fatal: " + std::string(e.what()));
+            AsyncLogger::logger().error(
+            "write_result_to_db - finalize_scan failed scan_id=" + std::to_string(event.scan_id) +
+            " err=" + std::string(e.what()));
     }
+
+    Metrics::measurement().export_finalizing_running.fetch_sub(1);
+    
 }
 
 std::vector<bool>
@@ -236,4 +221,26 @@ ExportManager::check_exported(const std::vector<uint64_t>& scan_ids) {
 void 
 ExportManager::set_scheduler_callback(std::function<void(const std::string&)> fn) {
     notify_export_done = std::move(fn);
+}
+
+
+ScanTaskRow 
+ExportManager::get_scan_task(const FileEvent& event) {
+    ScanTaskRow row;
+    {
+        std::lock_guard<std::mutex> lock(pending_scan_rows_mtx);
+        std::unordered_map<uint64_t, ScanTaskRow>::iterator it = pending_scan_rows.find(event.scan_id);
+        if (it == pending_scan_rows.end()) {
+            AsyncLogger::logger().error("write_result_to_db - missing scan row for sentinel scan_id=" + std::to_string(event.scan_id));
+            throw std::runtime_error("missing scan row for sentinel scan_id=" + std::to_string(event.scan_id));
+        }
+        row = std::move(it->second);
+        pending_scan_rows.erase(it);
+    }
+
+    if (row.submit_root.empty()) {
+        row.submit_root = event.path;
+    }
+
+    return row;
 }
