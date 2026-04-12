@@ -71,7 +71,8 @@ MultiScanner::scan_one_node(const ScanData& data) {
         event.err = {};
         event.node_type = NodeType::LINK;
         event.modtime = stat_buff.st_mtime;
-        event.size = stat_buff.st_size;
+        // event.size = stat_buff.st_size;
+        event.size = stat_buff.st_blocks * 512;
         manager.record_result(std::move(event));
         return childrens; 
     }
@@ -80,7 +81,8 @@ MultiScanner::scan_one_node(const ScanData& data) {
     if (!S_ISDIR(stat_buff.st_mode)) {  //is file 
         event.node_type = NodeType::FILE;
         event.modtime = stat_buff.st_mtime;
-        event.size = stat_buff.st_size;
+        // event.size = stat_buff.st_size;
+        event.size = stat_buff.st_blocks * 512;
         event.err = {};                //success
         manager.record_result(std::move(event));
         return childrens;
@@ -91,7 +93,11 @@ MultiScanner::scan_one_node(const ScanData& data) {
     event.node_type = NodeType::DIR;
 
     event.modtime = stat_buff.st_mtime;
-    event.size = stat_buff.st_size;
+    // event.size = stat_buff.st_size;
+    event.size = stat_buff.st_blocks * 512;
+    // st_size: logical file size (apparent size, matches ls -l)
+    // st_blocks * 512: actual disk usage in bytes (matches du)
+    
 
     // check open permission
     DIR* dir = opendir(path.c_str());
