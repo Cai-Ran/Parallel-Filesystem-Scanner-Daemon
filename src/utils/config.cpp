@@ -89,10 +89,8 @@ Config::load(const std::string& config_file) {
                 else if (key == "queue_max_size")                                       
                     asynclogger_.queue_max_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
             } else if (sec == "exportmanager" || sec == "export_manager") {
-                if (key == "result_que_size" || key == "result_queue_size")                         
-                    exportmanager_.result_que_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
-                else if (key == "delete_que_size" || key == "delete_queue_size")                                            
-                    exportmanager_.delete_que_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
+                if (key == "que_size" || key == "queue_size")                         
+                    exportmanager_.que_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
             } else if (sec == "manager") {
                 if (key == "scan_queue_max_size" || key == "queue_max_size")            
                     manager_.scan_queue_max_size = clamp(std::stoull(value), std::numeric_limits<size_t>::min(), std::numeric_limits<size_t>::max());
