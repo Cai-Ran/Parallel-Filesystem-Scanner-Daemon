@@ -37,8 +37,7 @@ struct AsyncLoggerConfig {
 };
 
 struct ExportManagerConfig {
-    size_t result_que_size = 8192;
-    size_t delete_que_size = 64;
+    size_t que_size = 524288;
 };
 
 struct DBConfig {
