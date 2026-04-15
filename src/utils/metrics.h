@@ -31,14 +31,12 @@ struct Metrics {
     std::atomic<uint64_t> request_jobs_queued;        //add / sub //follow queue
 
     // export_manager
-    uint64_t const_result_que_size;
-    uint64_t const_delete_que_size;
-    std::atomic<uint64_t>   export_result_pending;             //add / sub //follow queue
-    std::atomic<int>        export_result_running;                  //add / sub
-    std::atomic<uint64_t>   export_result_finished;            //only add
-    std::atomic<uint64_t>   export_delete_pending;             //add / sub //follow queue
-    std::atomic<int>        export_delete_running;                  //add / sub
-    std::atomic<uint64_t>   export_delete_finished;            //only add
+    uint64_t const_export_que_size;
+    std::atomic<uint64_t>   export_pending;             //add / sub //follow queue
+    std::atomic<int>        export_running;                  //add / sub
+    std::atomic<uint64_t>   export_finished;            //only add
+    std::atomic<uint64_t>   export_finalizing_running;
+    std::atomic<uint64_t>   export_finalizing_done;
 
     // async_logger
     uint64_t const_logger_pending_queue_size;
@@ -68,12 +66,9 @@ struct Metrics {
         request_jobs_queued.store(0);       
 
         // export_manager
-        export_result_pending.store(0);
-        export_result_running.store(0);
-        export_result_finished.store(0);
-        export_delete_pending.store(0);
-        export_delete_running.store(0);
-        export_delete_finished.store(0);
+        export_pending.store(0);
+        export_running.store(0);
+        export_finished.store(0);
 
         // async_logger
         const_logger_pending_queue_size = 0;
