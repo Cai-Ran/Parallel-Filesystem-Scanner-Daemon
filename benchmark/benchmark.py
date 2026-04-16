@@ -3,7 +3,7 @@ from metrics_sampler import MetricsSampler
 from resource_sampler import ResourceSampler
 from scenarios import Scenarios
 from reporter import build_report, summarize_metrics, summarize_resources
-from helpers import as_int, as_float, utc_iso
+from helpers import as_int, as_float, utc_iso, now_ts
 import subprocess
 from typing import List, Dict
 from pathlib import Path
@@ -325,7 +325,7 @@ def main():
             sname = scenario_cfg.get("name", scenario_cfg.get("type", "scenario"))
             print(f"[benchmark] run profile={profile_name} scenario={sname}")
 
-            not_timeout = client.wait_metrics_reset(wait_timeout=60, poll_interval_sec=0.2)
+            not_timeout = client.wait_metrics_reset(wait_timeout=120, poll_interval_sec=0.2)
             if not not_timeout:
                 print(f"[DEBUG] wait_metrics_reset timeout")
             else:
@@ -339,6 +339,11 @@ def main():
 
             scenario = Scenarios(client=client, roots=dataset_roots, poll_interval=poll_state, timeout_sec=cycle_timeout)
             scenario_result = scenario.run_scenario(scenario_cfg)
+            export_idle_ok, _ = client.wait_export_idle(wait_timeout=cycle_timeout, poll_interval_sec=poll_state)
+            if export_idle_ok:
+                final_metrics = client.get_metrics()
+                if final_metrics:
+                    metrics_sampler.collected_samples.append({"time": now_ts(), "metrics": final_metrics})
 
             metrics_sampler.stop()
             resource_sampler.stop()
@@ -362,6 +367,10 @@ def main():
             row["scan_entries_per_root_expected"] = dataset_model["entries_per_root"]
             row["scan_total_expected_entries"] = int(done_scan_count * dataset_model["entries_per_root"])
             row.update(metrics_summary)
+            io_incomplete = as_int(row.get("io_incomplete", 0), 0)
+            if io_incomplete == 1:
+                print(f"[DEBUG] io window incomplete profile={profile_name} scenario={sname}")
+            row.pop("io_incomplete", None)
             row.update(resource_summary)
             result_rows.append(row)
 
