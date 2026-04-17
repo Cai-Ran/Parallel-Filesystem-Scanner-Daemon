@@ -96,7 +96,7 @@
       "type": "cancel",
       "requests": 40,
       "submit_workers": 10,
-      "cancel_delay_sec": 1.5
+      "cancel_delay_sec": 1.0
     }
   ]
 }
