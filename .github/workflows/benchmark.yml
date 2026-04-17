@@ -33,8 +33,7 @@ jobs:
           python3 benchmark/benchmark.py \
             --project-root . \
             --bench-config benchmark/bench_config_ci.json \
-            --runs-dir benchmark/runs-ci \
-            --store false
+            --runs-dir benchmark/runs-ci 
 
       - name: Upload benchmark artifacts
         uses: actions/upload-artifact@v4
