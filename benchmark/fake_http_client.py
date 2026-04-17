@@ -172,10 +172,9 @@ class HttpClient:
             scan_jobs_unfinished =  as_int(metrics.get("scan_jobs_unfinished", 0), 0)
             scan_jobs_queued =      as_int(metrics.get("scan_jobs_queued", 0), 0)
             request_jobs_queued =   as_int(metrics.get("request_jobs_queued", 0), 0)
-            export_result_pending = as_int(metrics.get("export_result_pending", 0), 0)
-            export_result_running = as_int(metrics.get("export_result_running", 0), 0)
-            export_delete_pending = as_int(metrics.get("export_delete_pending", 0), 0)
-            export_delete_running = as_int(metrics.get("export_delete_running", 0), 0)
+            export_pending = as_int(metrics.get("export_pending", 0), 0)
+            export_running = as_int(metrics.get("export_running", 0), 0)
+            export_finalizing_running = as_int(metrics.get("export_finalizing_running", 0), 0)
 
             # check metrics is reset 
             idle = (
@@ -184,10 +183,9 @@ class HttpClient:
                 and scan_jobs_unfinished    == 0
                 and scan_jobs_queued        == 0
                 and request_jobs_queued     == 0
-                and export_result_pending   == 0
-                and export_result_running   == 0
-                and export_delete_pending   == 0
-                and export_delete_running   == 0
+                and export_pending          == 0
+                and export_running          == 0
+                and export_finalizing_running == 0
             )
 
             if idle:
@@ -200,6 +198,37 @@ class HttpClient:
             time.sleep(poll_interval_sec)
 
         return False
+
+    # wait exporter pipeline to become idle (result + delete)
+    def wait_export_idle(self, wait_timeout: float, poll_interval_sec: float):
+        deadline = now_ts() + wait_timeout
+        stable_hits = 0
+
+        while now_ts() < deadline:
+            metrics = self.get_metrics()
+            now = now_ts()
+            if not metrics:
+                time.sleep(poll_interval_sec)
+                continue
+
+            export_pending = as_int(metrics.get("export_pending", 0), 0)
+            export_running = as_int(metrics.get("export_running", 0), 0)
+            export_finalizing_running = as_int(metrics.get("export_finalizing_running", 0), 0)
+
+            idle = (
+                export_pending == 0 and export_running == 0 and export_finalizing_running == 0
+            )
+
+            if idle:
+                stable_hits += 1
+                if stable_hits >= 3:
+                    return True, now
+            else:
+                stable_hits = 0
+
+            time.sleep(poll_interval_sec)
+
+        return False, now_ts()
     
     # wait server respond homepage
     def wait_server_ready(self, wait_timeout: float) -> bool:
