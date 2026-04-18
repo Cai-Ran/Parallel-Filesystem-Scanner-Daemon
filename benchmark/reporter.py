@@ -63,23 +63,65 @@ def summarize_metrics(samples: List[Dict], start_metrics: Dict, end_metrics: Dic
     max_request_jobs_queued = 0
     max_scan_running = 0
     avg_scan_running = 0.0
+    io_elapsed_sec = 0.0
+    io_incomplete = 0
+    io_started = 0
+    io_finished = 1
     anomalies = {}
     anomaly_metric_hits = {}
 
     if samples:
         scan_running_values = []
+        sample_times = []
+        sample_active = []
         for s in samples:
             m = s["metrics"]
             scan_pending = _metric_u64_sanitized(m, "scan_pending", anomalies, anomaly_metric_hits)
             scan_jobs_queued = _metric_u64_sanitized(m, "scan_jobs_queued", anomalies, anomaly_metric_hits)
             request_jobs_queued = _metric_u64_sanitized(m, "request_jobs_queued", anomalies, anomaly_metric_hits)
             sr = _metric_u64_sanitized(m, "scan_running", anomalies, anomaly_metric_hits)
+            export_pending = _metric_u64_sanitized(m, "export_pending", anomalies, anomaly_metric_hits)
+            export_running = _metric_u64_sanitized(m, "export_running", anomalies, anomaly_metric_hits)
+            export_finalizing_running = _metric_u64_sanitized(m, "export_finalizing_running", anomalies, anomaly_metric_hits)
             max_scan_pending = max(max_scan_pending, scan_pending)
             max_scan_jobs_queued = max(max_scan_jobs_queued, scan_jobs_queued)
             max_request_jobs_queued = max(max_request_jobs_queued, request_jobs_queued)
             scan_running_values.append(sr)
             max_scan_running = max(max_scan_running, sr)
+            sample_times.append(as_float(s.get("time", 0.0), 0.0))
+            sample_active.append(
+                (export_pending > 0) or (export_running > 0) or (export_finalizing_running > 0)
+            )
         avg_scan_running = float(statistics.mean(scan_running_values)) if scan_running_values else 0.0
+
+        first_active_idx = -1
+        for i, active in enumerate(sample_active):
+            if active:
+                first_active_idx = i
+                break
+
+        if first_active_idx != -1:
+            io_started = 1
+            io_finished = 0
+            start_t = sample_times[first_active_idx]
+            last_active_idx = first_active_idx
+            for i in range(len(sample_active) - 1, first_active_idx - 1, -1):
+                if sample_active[i]:
+                    last_active_idx = i
+                    break
+
+            end_idx = -1
+            for i in range(last_active_idx + 1, len(sample_active)):
+                if not sample_active[i]:
+                    end_idx = i
+                    break
+
+            if end_idx != -1:
+                io_finished = 1
+                io_elapsed_sec = max(sample_times[end_idx] - start_t, 0.0)
+            else:
+                io_incomplete = 1
+                io_elapsed_sec = max(sample_times[-1] - start_t, 0.0)
 
     def delta(key: str) -> int:
         start_val = _metric_u64_sanitized(start_metrics, key, anomalies, anomaly_metric_hits)
@@ -99,6 +141,12 @@ def summarize_metrics(samples: List[Dict], start_metrics: Dict, end_metrics: Dic
             parts.append(f"{k}:{items[k]}")
         return ",".join(parts)
 
+    delta_export_finished = delta("export_finished")
+    io_rows_finished = delta_export_finished
+    io_throughput_rows_per_sec_K = 0.0
+    if io_elapsed_sec > 0.0 and io_incomplete == 0:
+        io_throughput_rows_per_sec_K = io_rows_finished / io_elapsed_sec / 1000
+
     return {
         "max_scan_pending": max_scan_pending,
         "max_scan_jobs_queued": max_scan_jobs_queued,
@@ -108,6 +156,12 @@ def summarize_metrics(samples: List[Dict], start_metrics: Dict, end_metrics: Dic
         "delta_scan_jobs_enqueue_reject": delta("scan_jobs_enqueue_reject"),
         "delta_request_jobs_failed": delta("request_jobs_failed"),
         "delta_export_finished": delta("export_finished"),
+        "io_rows_finished": io_rows_finished,
+        "io_throughput_rows_per_sec_K": round(io_throughput_rows_per_sec_K, 3),
+        "io_elapsed_sec": round(io_elapsed_sec, 4),
+        "io_started": io_started,
+        "io_finished": io_finished,
+        "io_incomplete": io_incomplete,
         "anomaly_u64_wrap_suspect": anomalies.get("u64_wrap_suspect", 0),
         "anomaly_negative_metric": anomalies.get("negative_metric", 0),
         "anomaly_delta_negative": anomalies.get("delta_negative", 0),
@@ -165,6 +219,8 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("  - scan scenarios: completed (`DONE`) scans per minute.")
     if cancel_rows:
         lines.append("  - `cancel_flow` scenario: terminal cancels (`CANCELED` + `DROPPED`) per minute.")
+    lines.append("  - IO window: measured from first exporter-active sample to first exporter-idle sample after activity.")
+    lines.append("  - IO throughput formula: `io_throughput_rows_per_sec_K = (export_finished) / io_elapsed_sec` / 1000.")
 
     lines.append("- Scan total expected (entries):")
     lines.append("  - Formula: `scan_total_expected_entries = done * scan_entries_per_root_expected`.")
@@ -179,6 +235,7 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("- Backpressure: HTTP 429 count under overload.")
     lines.append("- Timeout(-1): client did not receive response (network/transport level).")
     lines.append("- Resource usage: process CPU (`avg`, `p95`) and RSS memory peak (MB).")
+    lines.append("- IO elapsed: `io_elapsed_sec` starts at first exporter-active sample and ends at first exporter-idle sample after activity.")
     lines.append("- Per-profile/raw metrics are available in `results.json` for deeper analysis.")
     lines.append("")
 
@@ -225,9 +282,9 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("## 6. Results")
     lines.append("")
     lines.append(
-        "| Profile | Scenario | Config | Latency Avg(s) | Latency P95(s) | Throughput (/min) | Expect_Scanned Size(entries) | Req_Total | Done | Reject (429) (cancel:409) | Timeout (-1) | CPU avg(%) | CPU p95(%) | RSS peak(MB) |"
+        "| Profile | Scenario | Config | Latency Avg(s) | Latency P95(s) | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K entry/sec) | Expect_Scanned Size(entries) | Req_Total | Done | Reject (429) (cancel:409) | Timeout (-1) | CPU avg(%) | CPU p95(%) | RSS peak(MB) |"
     )
-    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("|---|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
 
     for r in rows:
         scenario = r.get("scenario", "")
@@ -235,6 +292,10 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
         avg = as_float(r.get("avg_latency_sec", 0), 0.0)
         p95 = as_float(r.get("p95_latency_sec", 0), 0.0)
         tp = as_float(r.get("throughput_per_min", r.get("throughput_scan_per_min", 0)), 0.0)
+        io_elapsed = as_float(r.get("io_elapsed_sec", 0.0), 0.0)
+        io_tp_text = "n/a"
+        if "io_throughput_rows_per_sec_K" in r:
+            io_tp_text = f"{as_float(r.get('io_throughput_rows_per_sec_K', 0.0), 0.0):.3f}"
         req_total = as_int(r.get("requests_total", 0), 0)
         done = as_int(r.get("done", 0), 0)
         scan_total_expected = as_int(r.get("scan_total_expected_entries", 0), 0)
@@ -247,13 +308,15 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
         rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
 
         lines.append(
-            "| {profile} | {scenario} | {cfg} | {avg:.4f} | {p95:.4f} | {tp:.3f} | {scan_total_expected} | {req_total} | {done} | {reject_code} | {stmo} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |".format(
+            "| {profile} | {scenario} | {cfg} | {avg:.4f} | {p95:.4f} | {tp:.3f} | {io_elapsed:.4f} | {io_tp} | {scan_total_expected} | {req_total} | {done} | {reject_code} | {stmo} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |".format(
                 profile=r.get("profile", ""),
                 scenario=scenario,
                 cfg=cfg,
                 avg=avg,
                 p95=p95,
                 tp=tp,
+                io_elapsed=io_elapsed,
+                io_tp=io_tp_text,
                 scan_total_expected=scan_total_expected,
                 req_total=req_total,
                 done=done,
@@ -300,20 +363,24 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     lines.append("")
     lines.append("Scenario goal: test effective capacity and protection behavior under sudden burst traffic (fixed-count concurrent submit).")
     lines.append("")
-    lines.append("| Profile | Req Total | Reject 429 | Done | Done % | Throughput (/min) | Latency Avg (s) | Latency P95 (s) | CPU avg (%) | RSS peak (MB) |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| Profile | Req Total | Reject 429 | Done | Done % | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K entry/sec) | Latency Avg (s) | Latency P95 (s) | CPU avg (%) | RSS peak (MB) |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in burst_rows:
         req_total = as_int(r.get("requests_total", 0), 0)
         reject_429 = as_int(r.get("status_429", 0), 0)
         done = as_int(r.get("done", 0), 0)
         done_pct = (done * 100.0 / req_total) if req_total > 0 else 0.0
         tp = as_float(r.get("throughput_per_min", 0), 0.0)
+        io_elapsed = as_float(r.get("io_elapsed_sec", 0.0), 0.0)
+        io_tp_text = "n/a"
+        if "io_throughput_rows_per_sec_K" in r:
+            io_tp_text = f"{as_float(r.get('io_throughput_rows_per_sec_K', 0.0), 0.0):.3f}"
         avg = as_float(r.get("avg_latency_sec", 0), 0.0)
         p95 = as_float(r.get("p95_latency_sec", 0), 0.0)
         cpu_avg = as_float(r.get("cpu_avg_percent", 0), 0.0)
         rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
         lines.append(
-            f"| {r.get('profile','')} | {req_total} | {reject_429} | {done} | {done_pct:.1f}% | {tp:.3f} | {avg:.4f} | {p95:.4f} | {cpu_avg:.2f} | {rss_peak:.2f} |"
+            f"| {r.get('profile','')} | {req_total} | {reject_429} | {done} | {done_pct:.1f}% | {tp:.3f} | {io_elapsed:.4f} | {io_tp_text} | {avg:.4f} | {p95:.4f} | {cpu_avg:.2f} | {rss_peak:.2f} |"
         )
 
     lines.append("")
@@ -322,21 +389,26 @@ def build_report(run_meta: Dict, rows: List[Dict]) -> str:
     overload_rows = scenario_rows("overload_queue")
     lines.append("#### overload_queue — Throughput vs Resource Cost")
     lines.append("")
-    lines.append("Scenario goal: test stability under sustained pressure (time-window (20s) continuous submit), including whether the system rejects excess load instead of stalling.")
+    lines.append("Scenario goal: test stability under sustained pressure (time-window (20s) continuous submit), including whether the system rejects excess load instead of stalling. Overlapped path requests will be rejected with 409.")
     lines.append("")
-    lines.append("| Profile | Req Total | Done | Reject 429 | Timeout (-1) | Throughput (/min) | CPU avg (%) | CPU p95 (%) | RSS Peak (MB) |")
-    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|")
+    lines.append("| Profile | Req Total | Done | Reject 429 | Reject 409 | Timeout (-1) | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K entry/sec) | CPU avg (%) | CPU p95 (%) | RSS Peak (MB) |")
+    lines.append("|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|")
     for r in overload_rows:
         req_total = as_int(r.get("requests_total", 0), 0)
         done = as_int(r.get("done", 0), 0)
         reject_429 = as_int(r.get("status_429", 0), 0)
+        reject_409 = as_int(r.get("status_409", 0), 0)
         timeout_count = as_int(r.get("status_timeout", 0), 0)
         tp = as_float(r.get("throughput_per_min", 0), 0.0)
+        io_elapsed = as_float(r.get("io_elapsed_sec", 0.0), 0.0)
+        io_tp_text = "n/a"
+        if "io_throughput_rows_per_sec_K" in r:
+            io_tp_text = f"{as_float(r.get('io_throughput_rows_per_sec_K', 0.0), 0.0):.3f}"
         cpu_avg = as_float(r.get("cpu_avg_percent", 0), 0.0)
         cpu_p95 = as_float(r.get("cpu_p95_percent", 0), 0.0)
         rss_peak = as_float(r.get("rss_peak_mb", 0), 0.0)
         lines.append(
-            f"| {r.get('profile','')} | {req_total} | {done} | {reject_429} | {timeout_count} | {tp:.3f} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |"
+            f"| {r.get('profile','')} | {req_total} | {done} | {reject_429} | {reject_409} | {timeout_count} | {tp:.3f} | {io_elapsed:.4f} | {io_tp_text} | {cpu_avg:.2f} | {cpu_p95:.2f} | {rss_peak:.2f} |"
         )
 
     lines.append("")
