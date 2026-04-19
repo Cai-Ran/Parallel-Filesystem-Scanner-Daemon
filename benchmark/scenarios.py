@@ -26,8 +26,7 @@ Scenario results:
 "p95_latency_sec": round(percentile(latencies, 0.95), 4) if latencies else 0.0,
                                 # total elapsed time in this scenario (from first post_scan to last scan_final_state)
 "elapsed_sec": round(elapsed, 4),   
-                                 # use elapsed time to compute throughput: scan done number / elapsed time sec * 60 (done_scan/min) 
-"throughput_per_min": round((end_state / elapsed) * 60.0, 3),                    
+"throughput_per_min": round((end_state / elapsed) * 60.0, 3),
 
 '''
 
@@ -146,8 +145,8 @@ class Scenarios:
             "custom_timeout": custom_timeout + len(scan_cycle_unclosed),    
             "avg_latency_sec": round(statistics.mean(latencies), 4) if latencies else 0.0,  
             "p95_latency_sec": round(percentile(latencies, 0.95), 4) if latencies else 0.0,
-            "elapsed_sec": round(elapsed, 4),   
-            "throughput_per_min": round((end_state / elapsed) * 60.0, 3),   
+            "elapsed_sec": round(elapsed, 4),
+            "throughput_per_min": round((end_state / elapsed) * 60.0, 3),
         }
            
 
@@ -278,4 +277,3 @@ class Scenarios:
             return self.scenario_cancel(scenario)
 
         raise ValueError(f"Unsupported scenario type: {stype}")
-
