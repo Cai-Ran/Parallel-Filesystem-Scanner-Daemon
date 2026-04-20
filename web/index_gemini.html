@@ -374,9 +374,9 @@
           </div>
           <div class="health-list">
             <div class="health-row"><span class="health-key">concurrency</span><span id="m_const_scan_max_concurrent_number" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">scan_queue</span><span id="m_const_scan_pending_queue_size" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">pending</span><span id="m_scan_pending" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">running</span><span id="m_scan_running" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">scan_queue_size</span><span id="m_const_scan_pending_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">pending</span><span id="m_scan_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">running</span><span id="m_scan_running" class="health-value">-</span></div>
           </div>
           <div class="health-meter"><div id="hm_scheduler" class="health-meter-fill"></div></div>
         </section>
@@ -387,12 +387,12 @@
             <span id="hb_scan_manager" class="health-badge">idle</span>
           </div>
           <div class="health-list">
-            <div class="health-row"><span class="health-key">job_threads</span><span id="m_const_scan_job_pool_num_threads" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">job_queue</span><span id="m_const_scan_job_queue_size" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">jobs_unfinished</span><span id="m_scan_jobs_unfinished" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">jobs_submitted</span><span id="m_scan_jobs_submitted" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">jobs_rejected</span><span id="m_scan_jobs_enqueue_reject" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">jobs_queued</span><span id="m_scan_jobs_queued" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">job_threads_total</span><span id="m_const_scan_job_pool_num_threads" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">job_queue_size</span><span id="m_const_scan_job_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">unfinished</span><span id="m_scan_jobs_unfinished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">submitted</span><span id="m_scan_jobs_submitted" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">rejected</span><span id="m_scan_jobs_enqueue_reject" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">queued</span><span id="m_scan_jobs_queued" class="health-value">-</span></div>
           </div>
           <div class="health-meter"><div id="hm_scan_manager" class="health-meter-fill"></div></div>
         </section>
@@ -403,11 +403,11 @@
             <span id="hb_http_server" class="health-badge">idle</span>
           </div>
           <div class="health-list">
-            <div class="health-row"><span class="health-key">fd_threads</span><span id="m_const_request_pool_num_threads" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">fd_queue</span><span id="m_const_request_queue_size" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">fd_submitted</span><span id="m_request_jobs_submitted" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">fd_rejected</span><span id="m_request_jobs_failed" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">fd_queued</span><span id="m_request_jobs_queued" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_threads_total</span><span id="m_const_request_pool_num_threads" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">fd_queue_size</span><span id="m_const_request_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">submitted</span><span id="m_request_jobs_submitted" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">rejected</span><span id="m_request_jobs_failed" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">queued</span><span id="m_request_jobs_queued" class="health-value">-</span></div>
           </div>
           <div class="health-meter"><div id="hm_http_server" class="health-meter-fill"></div></div>
         </section>
@@ -418,17 +418,14 @@
             <span id="hb_export_manager" class="health-badge">idle</span>
           </div>
           <div class="health-list">
-            <div class="health-row"><span class="health-key">export_que_pending</span><span id="m_export_pending" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">export_que_running</span><span id="m_export_running" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">export_que_finished</span><span id="m_export_finished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">export_queue_size</span><span id="m_const_export_que_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">pending</span><span id="m_export_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">running</span><span id="m_export_running" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">finished</span><span id="m_export_finished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5f50b;">finalizing</span><span id="m_export_finalizing_running" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5f50b;">finalized</span><span id="m_export_finalizing_done" class="health-value">-</span></div>
           </div>
           <div class="health-meter"><div id="hm_export_que" class="health-meter-fill"></div></div>
-          <div class="health-list">
-            <div class="health-row"><span class="health-key">delete_que_pending</span><span id="m_export_delete_pending" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">delete_que_running</span><span id="m_export_delete_running" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">delete_que_finished</span><span id="m_export_delete_finished" class="health-value">-</span></div>
-          </div>
-          <div class="health-meter"><div id="hm_delete_que" class="health-meter-fill"></div></div>
         </section>
 
         <section class="health-panel">
@@ -437,10 +434,10 @@
             <span id="hb_logger" class="health-badge">idle</span>
           </div>
           <div class="health-list">
-            <div class="health-row"><span class="health-key">log_queue</span><span id="m_const_logger_pending_queue_size" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">log_pending</span><span id="m_logger_pending" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">log_finished</span><span id="m_logger_finished" class="health-value">-</span></div>
-            <div class="health-row"><span class="health-key">log_fallback</span><span id="m_logger_fallback" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key">log_queue_size</span><span id="m_const_logger_pending_queue_size" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">pending</span><span id="m_logger_pending" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">finished</span><span id="m_logger_finished" class="health-value">-</span></div>
+            <div class="health-row"><span class="health-key" style="color:#f5c20b;">fallback</span><span id="m_logger_fallback" class="health-value">-</span></div>
           </div>
           <div class="health-meter"><div id="hm_logger" class="health-meter-fill"></div></div>
         </section>
@@ -747,10 +744,13 @@ async function metrics() {
     Object.keys(json).forEach(k => {
       if (!k.startsWith('const_')) setText('m_' + k, json[k]);
     });
-    // UI IDs are still m_export_pending/m_export_running/m_export_finished.
-    setText('m_export_pending', json.export_result_pending ?? json.export_pending ?? 0);
-    setText('m_export_running', json.export_result_running ?? json.export_running ?? 0);
-    setText('m_export_finished', json.export_result_finished ?? json.export_finished ?? 0);
+    // ExportManager fields.
+    setText('m_const_export_que_size', json.const_export_que_size ?? 0);
+    setText('m_export_pending', json.export_pending ?? 0);
+    setText('m_export_running', json.export_running ?? 0);
+    setText('m_export_finished', json.export_finished ?? 0);
+    setText('m_export_finalizing_running', json.export_finalizing_running ?? 0);
+    setText('m_export_finalizing_done', json.export_finalizing_done ?? 0);
     updateHealthPanels(json);
     
     mayUnblockScan();
@@ -759,10 +759,10 @@ async function metrics() {
         m_scan_running === 0 &&
         m_scan_pending === 0 &&
         (json.scan_jobs_unfinished) === 0 &&
-        (json.export_result_pending) === 0 &&
-        (json.export_result_running) === 0 &&
-        (json.export_delete_pending) === 0 &&
-        (json.export_delete_running) === 0) 
+        (json.export_pending) === 0 &&
+        (json.export_running) === 0 &&
+        (json.export_finalizing_running ?? 0) === 0
+    )   
     {
       startCountdown();
     }
@@ -1053,18 +1053,15 @@ function updateHealthPanels(json) {
   setHealthBadge('hb_http_server', reqLabel, reqLevel);
   setHealthMeter('hm_http_server', reqRatio, reqLevel, reqQueued > 0);
 
-  var expPending = toNum(json.export_result_pending ?? json.export_pending);
-  var expRunning = toNum(json.export_result_running ?? json.export_running);
-  var delPending = toNum(json.export_delete_pending);
-  var delRunning = toNum(json.export_delete_running);
-  var expCap = toNum(json.const_result_que_size);
-  var delCap = toNum(json.const_delete_que_size);
-  var expInflight = expPending + expRunning;
-  var delInflight = delPending + delRunning;
-  var expRatio = expCap > 0 ? expInflight / expCap : 0;
-  var delRatio = delCap > 0 ? delInflight / delCap : 0;
+  var expPending = toNum(json.export_pending ?? json.export_pending);
+  var expRunning = toNum(json.export_running ?? json.export_running);
+  var expFinalizingRunning = toNum(json.export_finalizing_running);
+  var expCap = toNum(json.const_export_que_size);
+  var expQueueInflight = expPending + expRunning;
+  var expBusy = expQueueInflight + expFinalizingRunning;
+  var expRatio = expCap > 0 ? expQueueInflight / expCap : 0;
   var expLevel = 'ok';
-  var expLabel = expInflight === 0 ? 'idle' : 'active';
+  var expLabel = expBusy === 0 ? 'idle' : 'active';
   if (expRatio >= 0.95) {
     expLabel = 'critical';
     expLevel = 'crit';
@@ -1072,28 +1069,18 @@ function updateHealthPanels(json) {
     expLabel = 'warning';
     expLevel = 'warn';
   }
-  var delLevel = 'ok';
-  var delLabel = delInflight === 0 ? 'idle' : 'active';
-  if (delRatio >= 0.95) {
-    delLabel = 'critical';
-    delLevel = 'crit';
-  } else if (delRatio >= 0.65) {
-    delLabel = 'warning';
-    delLevel = 'warn';
-  }
 
-  var exportLabel = (expInflight + delInflight) === 0 ? 'idle' : 'active';
+  var exportLabel = (expBusy) === 0 ? 'idle' : 'active';
   var exportLevel = 'ok';
-  if (expLevel === 'crit' || delLevel === 'crit') {
+  if (expLevel === 'crit') {
     exportLabel = 'critical';
     exportLevel = 'crit';
-  } else if (expLevel === 'warn' || delLevel === 'warn') {
+  } else if (expLevel === 'warn') {
     exportLabel = 'warning';
     exportLevel = 'warn';
   }
   setHealthBadge('hb_export_manager', exportLabel, exportLevel);
-  setHealthMeter('hm_export_que', expRatio, expLevel, expInflight > 0);
-  setHealthMeter('hm_delete_que', delRatio, delLevel, delInflight > 0);
+  setHealthMeter('hm_export_que', expRatio, expLevel, expBusy > 0);
 
 
   var logQueueCap = toNum(json.const_logger_pending_queue_size);
