@@ -1,0 +1,164 @@
+<!-- <!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+</head>
+<body> -->
+
+
+
+
+<style>
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-text-primary: #1a1a18;
+  --color-text-secondary: #73726c;
+  --color-text-tertiary: #9c9a92;
+  --color-text-info: #0c447c;
+  --color-text-warning: #633806;
+  --color-text-danger: #791f1f;
+  --color-text-success: #27500a;
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f1efe8;
+  --color-background-info: #e6f1fb;
+  --color-background-warning: #faeeda;
+  --color-background-danger: #fcebeb;
+  --color-background-success: #eaf3de;
+  --color-border-tertiary: rgba(0,0,0,0.12);
+  --color-border-secondary: rgba(0,0,0,0.25);
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+}
+
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.wrap{padding:32px 44px}
+h2{font-size:18px;font-weight:500;color:var(--color-text-primary);margin-bottom:20px}
+.tbl-wrap{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:12px;table-layout:fixed}
+th{font-size:11px;font-weight:500;color:var(--color-text-secondary);text-align:left;padding:8px 10px;border-bottom:0.5px solid var(--color-border-secondary);white-space:nowrap;background:var(--color-background-secondary)}
+td{padding:9px 10px;border-bottom:0.5px solid var(--color-border-tertiary);color:var(--color-text-primary);vertical-align:top;line-height:1.5}
+tr:last-child td{border-bottom:none}
+.name{font-weight:500;font-size:12px}
+.cat{font-size:10px;color:var(--color-text-tertiary);margin-top:2px}
+.badge{display:inline-block;font-size:10px;font-weight:500;padding:2px 7px;border-radius:99px;white-space:nowrap;margin:1px 1px 1px 0}
+.b-push{background:var(--color-background-danger);color:var(--color-text-danger)}
+.b-poll{background:var(--color-background-warning);color:var(--color-text-warning)}
+.b-both{background:var(--color-background-success);color:var(--color-text-success)}
+.feat{font-size:11px;color:var(--color-text-secondary);line-height:1.6}
+.os{font-size:11px;color:var(--color-text-secondary)}
+.year{font-size:11px;color:var(--color-text-secondary)}
+.note{font-size:11px;color:var(--color-text-tertiary);line-height:1.5;font-style:italic}
+.legend{display:flex;flex-wrap:wrap;gap:8px;margin-top:16px;font-size:11px;color:var(--color-text-secondary);align-items:center;margin-bottom: 24px;}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:10px}
+</style>
+<div class="wrap">
+<div class="eyebrow">Market Landscape</div>
+<h2>Filesystem scanner</h2>
+<div class="legend" >
+  <span>Legend:</span>
+  <span class="badge b-poll">Poll</span><span>scheduled full traversal</span>
+  <span class="badge b-push">Push</span><span>inotify / FSEvents / kqueue</span>
+  <span class="badge b-both">Both</span><span>full crawl on start, push-maintained thereafter</span>
+</div>
+<div class="tbl-wrap">
+<table>
+  <colgroup>
+    <col style="width:160px">
+    <col style="width:120px">
+    <col style="width:180px">
+    <col style="width:120px">
+    <col style="width:65px">
+    <col style="width:200px">
+  </colgroup>
+  <thead>
+    <tr>
+      <th>Product</th>
+      <th>Underlying tech</th>
+      <th>Key features</th>
+      <th>OS support</th>
+      <th>Release</th>
+      <th>Notes</th>
+    </tr>
+  </thead>
+  <tbody>
+    <tr>
+      <td><div class="name">KDE Baloo</div><div class="cat">Desktop search / file indexer</div></td>
+      <td><span class="badge b-both">Both</span><div class="feat" style="margin-top:4px">inotify continuous watch<br>+ initial full index</div></td>
+      <td><div class="feat">• Full-text content indexing<br>• File metadata indexing<br>• KRunner / Dolphin search<br>• MIME-type aware<br>• Persistent database</div></td>
+      <td><div class="os">Linux only<br>(ext3/4, Btrfs, XFS)</div></td>
+      <td><div class="year">2014</div></td>
+      <td><div class="note">inotify watch count is bounded by kernel limits. Large directory trees can hit inotify watch limits, requiring manual kernel tuning.</div></td>
+    </tr>
+    <tr>
+      <td><div class="name">osquery</div><div class="cat">Security / system auditing</div></td>
+      <td><span class="badge b-push">Push</span><div class="feat" style="margin-top:4px">inotify (Linux)<br>FSEvents (macOS)<br>NTFS Journal (Windows)</div></td>
+      <td><div class="feat">• SQL interface for system state<br>• File Integrity Monitoring (FIM)<br>• Scheduled SQL queries<br>• Event subscription tables<br>• Fleet / REST integration</div></td>
+      <td><div class="os">Linux<br>macOS<br>Windows</div></td>
+      <td><div class="year">2014</div></td>
+      <td><div class="note">Primarily a SQL query engine; filesystem is one data source among many. inotify watch count is subject to kernel limits</div></td>
+    </tr>
+    <tr>
+      <td><div class="name">Meta Watchman</div><div class="cat">Dev tooling / build watcher</div></td>
+      <td><span class="badge b-both">Both</span><div class="feat" style="margin-top:4px">inotify (Linux)<br>FSEvents (macOS)<br>kqueue (BSD)<br>overflow fallback to full crawl </div></td>
+      <td><div class="feat">• Watch source directories for changes<br>• Trigger builds / tests<br>• Subscription-based query API<br>• Incremental diff queries<br>• Full crawl on initial start</div></td>
+      <td><div class="os">Linux<br>macOS<br>BSD (limited)</div></td>
+      <td><div class="year">2013</div></td>
+      <td><div class="note">Push is the primary path.<br>When inotify overflows, Watchman falls back to a full directory crawl — same approach as polling-based scanners</div></td>
+    </tr>
+
+    <tr>
+      <td><div class="name">GNOME Tracker<br>(TinySPARQL)</div><div class="cat">Desktop search / semantic indexer</div></td>
+      <td><span class="badge b-both">Both</span><div class="feat" style="margin-top:4px">inotify (Linux)<br>+ initial full scan</div></td>
+      <td><div class="feat">• SPARQL query interface<br>• RDF metadata store<br>• Audio / document content indexing<br>• D-Bus API<br>• Per-directory watch toggle</div></td>
+      <td><div class="os">Linux (primary)</div></td>
+      <td><div class="year">2005</div></td>
+      <td><div class="note">Directories configured as "not watched" are only scanned once at startup and never updated — that mode is functionally identical to polling</div></td>
+    </tr>
+    <tr><td></td><td></td><td></td><td>Linux inotify</td><td> 2005</td><td></td></tr>
+    <tr>
+      <td><div class="name">mlocate / plocate</div><div class="cat">System tool / file search</div></td>
+      <td><span class="badge b-poll">Poll</span><div class="feat" style="margin-top:4px">Pure polling<br>cron daily<br>Merge-based update</div></td>
+      <td><div class="feat">• Full-system path index<br>• Fast filename search<br>• Incremental merge updates<br>• Single .db file output<br>• plocate: trigram index</div></td>
+      <td><div class="os">Linux<br>Unix-like</div></td>
+      <td><div class="year">2006/2020</div></td>
+      <td><div class="note">Simplest polling scanner.<br>No concurrency, no cancellation, no REST API.<br>Concurrent scan daemon significantly exceeds it in every systems dimension</div></td>
+    </tr>
+
+    <tr>
+      <td><div class="name">AIDE</div><div class="cat">Security / file integrity</div></td>
+      <td><span class="badge b-poll">Poll</span><div class="feat" style="margin-top:4px">Pure polling<br>No inotify<br>Hash comparison</div></td>
+      <td><div class="feat">• Baseline snapshot creation<br>• Periodic hash / checksum comparison<br>• Detects unauthorised changes<br>• Compliance reporting<br>• cron-scheduled execution</div></td>
+      <td><div class="os">Unix-like<br>(Linux / BSD)</div></td>
+      <td><div class="year">1999</div></td>
+      <td><div class="note">Designed to run on a schedule by choice — deterministic snapshots suit compliance auditing better than real-time events.</div></td>
+    </tr>
+    <tr>
+      <td><div class="name">Tripwire (OSS)</div><div class="cat">Security / file integrity</div></td>
+      <td><span class="badge b-poll">Poll</span><div class="feat" style="margin-top:4px">Pure polling<br>No inotify<br>Policy-driven</div></td>
+      <td><div class="feat">• Policy-driven scan rules<br>• Baseline database<br>• Hash + permissions + inode comparison<br>• Change reporting<br>• Scheduled execution</div></td>
+      <td><div class="os">Unix-like<br>(Linux / BSD / Solaris / AIX)</div></td>
+      <td><div class="year">1992</div></td>
+      <td><div class="note">Polling is an intentional choice — deterministic, auditable, and independent of kernel event APIs</div></td>
+    </tr>
+
+    <tr>
+      <td><div class="name"  style="font-weight: bold; color: red;">Concurrent scan daemon</div><div class="cat">Server tooling / file indexer</div></td>
+      <td><span class="badge b-poll">Poll</span><div class="feat" style="margin-top:4px">Pure polling<br>On-demand triggered<br>Concurrent LIFO DFS</div></td>
+      <td><div class="feat">• Concurrent multi-scan execution<br>• 5-state FSM + cancellation<br>• Drain mode + Graceful shutdown<br>• Persistent SQLite index<br>• Backpressure (HTTP 429)<br>• Async export pipeline<br>• REST API control plane</div></td>
+      <td><div class="os">Linux<br>(POSIX)<br>(only tested on linux)</div></td>
+      <td><div class="year">this project</div></td>
+      <td><div class="note">Most feature-complete polling-based scanner in this comparison.<br>Main gap versus inotify-based products is detection latency,not concurrency control or operational behavior.</div></td>
+    </tr>
+  </tbody>
+</table>
+</div>
+
+</div>
+
+
+<!-- </body>
+</html> -->
