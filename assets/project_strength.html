@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@tabler/icons-webfont@latest/tabler-icons.min.css">
+  <title>Project Strengths</title>
+</head>
+<body>
+
+
+<style>
+:root {
+  --font-sans: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --color-text-primary: #1a1a18;
+  --color-text-secondary: #73726c;
+  --color-text-tertiary: #9c9a92;
+  --color-text-info: #0c447c;
+  --color-text-warning: #633806;
+  --color-text-danger: #791f1f;
+  --color-text-success: #27500a;
+  --color-background-primary: #ffffff;
+  --color-background-secondary: #f1efe8;
+  --color-background-info: #e6f1fb;
+  --color-background-warning: #faeeda;
+  --color-background-danger: #fcebeb;
+  --color-background-success: #eaf3de;
+  --color-border-tertiary: rgba(0,0,0,0.12);
+  --color-border-secondary: rgba(0,0,0,0.25);
+  --border-radius-md: 8px;
+  --border-radius-lg: 12px;
+}
+
+
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:var(--font-sans)}
+.wrap{padding:40px 44px}
+.eyebrow{font-size:11px;font-weight:500;letter-spacing:.08em;text-transform:uppercase;color:var(--color-text-tertiary);margin-bottom:10px}
+h2{font-size:18px;font-weight:500;color:var(--color-text-primary);margin-bottom:24px}
+.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(250px,1fr));gap:12px}
+.card{background:var(--color-background-primary);border:0.5px solid var(--color-border-tertiary);border-radius:var(--border-radius-lg);padding:18px 20px}
+.tag{display:inline-block;font-size:10px;font-weight:500;padding:2px 8px;border-radius:99px;margin-bottom:10px}
+.t-blue{background:var(--color-background-info);color:var(--color-text-info)}
+.t-green{background:var(--color-background-success);color:var(--color-text-success)}
+.t-amber{background:var(--color-background-warning);color:var(--color-text-warning)}
+.t-red{background:var(--color-background-danger);color:var(--color-text-danger)}
+.t-gray{background:var(--color-background-secondary);color:var(--color-text-secondary)}
+.card-header{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.icon{font-size:16px;color:var(--color-text-info)}
+.icon.green{color:var(--color-text-success)}
+.icon.amber{color:var(--color-text-warning)}
+.card-title{font-size:13px;font-weight:500;color:var(--color-text-primary)}
+.card-body{font-size:12px;color:var(--color-text-secondary);line-height:1.6}
+</style>
+<div class="wrap">
+<div class="eyebrow">Project strengths</div>
+<h2>What this system does well</h2>
+<div class="grid">
+
+
+  <div class="card">
+    <div class="tag t-red">Performance</div>
+    <div class="card-header"><i class="ti ti-bolt icon green" aria-hidden="true"></i><div class="card-title">3.59× scan speedup</div></div>
+    <div class="card-body">Multi-threaded iterative DFS with LIFO thread pool; recursive fallback under saturation keeps memory working set small.</div>
+  </div>
+
+  <div class="card">
+    <div class="tag t-amber">Portability</div>
+    <div class="card-header"><i class="ti ti-cpu icon" aria-hidden="true"></i><div class="card-title">Unix-like embedded deployment</div></div>
+    <div class="card-body">Pure C++14 with only two dependencies: SQLite (single-file DB) and POSIX APIs, <strong>theoretically</strong> suitable for Unix-like embedded environments, though tested only on Linux.</div>
+  </div>
+
+  <div class="card">
+    <div class="tag t-amber">Observability</div>
+    <div class="card-header"><i class="ti ti-eye icon amber" aria-hidden="true"></i><div class="card-title">Observable by design</div></div>
+    <div class="card-body">Async non-blocking logger with bounded-queue fallback policy. Atomic metrics and live system state polling via REST API.</div>
+  </div>
+
+  <div class="card">
+    <div class="tag t-blue">Architecture</div>
+    <div class="card-header"><i class="ti ti-topology-star icon" aria-hidden="true"></i><div class="card-title">Correctness under concurrency</div></div>
+    <div class="card-body">Designed FSM to enforce explicit, mutually exclusive scan lifecycle transitions under concurrency.</div>
+  </div>
+
+
+
+  <div class="card">
+    <div class="tag t-blue">Architecture</div>
+    <div class="card-header"><i class="ti ti-unlink icon green" aria-hidden="true"></i><div class="card-title">Scan decoupled from DB I/O</div></div>
+    <div class="card-body">Bounded MPSC queue buffers export jobs. Scan workers proceed without waiting for DB writes to complete.</div>
+  </div>
+
+  <div class="card">
+    <div class="tag t-blue">Architecture</div>
+    <div class="card-header"><i class="ti ti-database icon green" aria-hidden="true"></i><div class="card-title">Persistent index and scan diffs</div></div>
+    <div class="card-body">SQLite-backed index persists scan results and exposes added, modified, and deleted file changes via REST API.</div>
+  </div>
+
+
+  <div class="card">
+    <div class="tag t-green">Reliability</div>
+    <div class="card-header"><i class="ti ti-shield icon" aria-hidden="true"></i><div class="card-title">Backpressure without stalling</div></div>
+    <div class="card-body">Bounded queues reject excess request load with HTTP 429. Zero timeouts across 26,000+ requests under sustained overload.</div>
+  </div>
+  
+
+  <div class="card">
+    <div class="tag t-green">Reliability</div>
+    <div class="card-header"><i class="ti ti-power icon amber" aria-hidden="true"></i><div class="card-title">No data loss on shutdown</div></div>
+    <div class="card-body">Designed drain mode and graceful shutdown to preserve observability, and drain the export pipeline before exit.</div>
+  </div>
+
+
+
+  <div class="card">
+    <div class="tag t-green">Reliability</div>
+    <div class="card-header"><i class="ti ti-gauge icon amber" aria-hidden="true"></i><div class="card-title">Failure-mode benchmarks</div></div>
+    <div class="card-body">Designed burst, overload, and cancel scenarios were each designed to stress a different part of the system and resources.</div>
+  </div>
+
+
+
+</div>
+</div>
+
+
+
+
+</body>
+</html>
