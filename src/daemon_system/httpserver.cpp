@@ -567,8 +567,8 @@ HttpServer::response_metrics(int fd) {
 /*
 polling rules:
 
-- scheduler state changing          PENDING, RUNNING    -> poll scheduler.get_state(s)
-- export_manager state fix          UNAVAILABLE
+- scheduler state changing          PENDING,     RUNNING     -> poll scheduler.get_state(s)
+- export_manager state fix          UNAVAILABLE, "EXPORTING" -> poll export_manager.check_exporting(s)
 :
 - scheduler state final             CANCELD, DONE       -> poll export_manager.check_exporting(s)
 - export_manager state changing     EXPORTING, EXPORTED
