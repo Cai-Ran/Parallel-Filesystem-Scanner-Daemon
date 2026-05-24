@@ -54,14 +54,12 @@ SIGINT / SIGTERM received | POST /shutdown
 │  scheduler.shutdown()                               │
 │    → cancel all running / pending scans             │
 │                                                     │
-│  poll metrics until all zero:                           │
+│  poll metrics until all zero:                       │
 │    scan_running              == 0  ┐                │
 │    scan_pending              == 0  │  wait...       │
 │    scan_jobs_unfinished      == 0  │                │
-│    export_result_pending     == 0  │                │
-│    export_result_running     == 0  │                │
-│    export_delete_pending     == 0  │                │
-│    export_delete_running     == 0  ┘                │
+│    export_pending            == 0  │                │
+│    export_running            == 0  ┘                │
 └─────────────────────────────────────────────────────┘
          │
          ▼
