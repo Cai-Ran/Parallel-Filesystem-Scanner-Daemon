@@ -19,20 +19,12 @@
 - [State Machine](#state-machine--polling-rules)
 - [Directory Structure](#directory-structure)
 - [Configuration](#configuration)
+- [Benchmark Design](#benchmark-design)
 
 ---
 
 ## Overview
-
-A concurrent file system scanning daemon with:
-
-- Multi-threaded DFS directory traversal (LIFO job queue → small working set)
-- Rate-limited scan dispatch 
-- Incremental SQLite index for persistent change detection across scans
-- Async DB export via a single dedicated write thread
-- HTTP REST API for client interaction
-- Graceful shutdown with configurable download grace period
-- Threads all coordinated with bounded queues and condition variables
+![p1](assets/project-strength.png)
 
 ### Demo
 
@@ -42,6 +34,10 @@ If embedded playback is not supported on your Markdown viewer, [open the demo vi
 
 ---
 
+## Market Landscape
+![alt text](assets/market_landscape.png)
+
+---
 ## Quick Start
 
 ### 1. Run on Linux
@@ -76,9 +72,6 @@ make bench
 
 
 ---
-
-
-
 
 ## System Architecture
 
@@ -139,33 +132,6 @@ make bench
 
 ---
 
-#### Key Data Structures
-
-```text
-FileEvent                         pushed by MultiScanner into result_queue
-  scan_id    : uint64_t
-  path       : string
-  modtime    : time_t
-  size       : uint64_t
-  err        : error_code
-  node_type  : NodeType  { UNKNOWN | DIR | FILE | LINK }
-  end_signal : Sentinel
-    is_sentinel : bool   ── true = scan boundary marker; path = root, others unused
-    is_canceled : bool   ── true = scan was canceled
-
-ScanTaskRow                       staged in pending_scan_rows until sentinel arrives
-  scan_id     : uint64_t
-  start_time  : uint64_t
-  finish_time : uint64_t
-  submit_root : string
-  end_state   : RequestState
-
-DeleteTask                        constructed inline in finalize_scan()
-  scan_id     : uint64_t
-  submit_root : string
-  canceled    : bool
-```
-
 ---
 
 ## State Machine & Polling Rules
@@ -193,9 +159,9 @@ DROPPED✕   CANCELED✕   DONE✕                  EXPORTED✕
 | `PENDING` `RUNNING` | Scheduler | `GET /state` | scan in progress |
 | `DONE` `CANCELED` | Scheduler | ✕ stop | scan finished, export starting |
 | `DROPPED` `FAILED` | Scheduler | ✕ stop  | — |
-| `UNAVAILABLE` | ExportManager | ✕ no polling | `DROPPED` `FAILED` scans |
+| `UNAVAILABLE` | ExportManager | ✕ no polling | `PENDING` `DROPPED` `FAILED` scans |
 | `EXPORTING` | ExportManager | `GET /exporting` | writing results to SQLite DB |
-| `EXPORTED` | ExportManager | ✕ stop  | user can fetch results via `/scan_diff_summary` `/scan_diff_detail` |
+| `EXPORTED` | ExportManager | ✕ stop  | user can fetch results via API |
 
 ---
 
@@ -299,6 +265,7 @@ main.cpp
         ├── scan_pool: ThreadPool<ScanData>  
         └── ExportManager
               └─ result_thread  (JobQueue<FileEvent>  → batch upsert + finalize on sentinel)
+              SQLite DB
 ```
 
 
@@ -318,8 +285,7 @@ main.cpp
 | `[manager]` | `scan_queue_max_size` | `1000` | Scan job queue capacity |
 | `[asynclogger]` | `log_dir` | *(path)* | Directory for log files |
 | `[asynclogger]` | `queue_max_size` | `8192` | Log queue capacity |
-| `[export_manager]` | `result_que_size` | `524288` | Result write queue capacity |
-| `[export_manager]` | `delete_que_size` | `4` | Delete queue capacity |
+| `[export_manager]` | `que_size` | `524288` | Result write queue capacity |
 | `[db]` | `db_path` | `./db/scan_database.db` | SQLite database file path |
 | `[db]` | `batch_size` | `32768` | Max rows per SQLite write batch |
 | `[db]` | `fsync` | `FALSE` | Enable fsync after each write batch |
@@ -393,14 +359,14 @@ Scenario goal: measure scan-path parallelization efficiency on one large root by
 
 Scenario goal: test effective capacity and protection behavior under sudden burst traffic (fixed-count concurrent submit).
 
-| Profile | Req Total | Reject 429 | Done | Done % | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K entry/sec) | Latency Avg (s) | Latency P95 (s) | CPU avg (%) | RSS peak (MB) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| baseline_single | 60 | 55 | 5 | 8.3% | 103.767 | 6.8114 | 61.195 | 1.5421 | 2.7395 | 101.62 | 49.05 |
-| concurrent_2 | 60 | 54 | 6 | 10.0% | 241.093 | 8.8723 | 56.377 | 0.8173 | 1.4177 | 95.08 | 101.79 |
-| concurrent_3 | 60 | 53 | 7 | 11.7% | 230.880 | 10.0458 | 58.089 | 0.9847 | 1.7300 | 109.97 | 113.01 |
-| concurrent_4 | 60 | 52 | 8 | 13.3% | 70.732 | 16.4004 | 40.665 | 2.6653 | 6.7759 | 139.09 | 127.49 |
-| concurrent_5 | 60 | 51 | 9 | 15.0% | 43.091 | 23.6557 | 31.717 | 3.6845 | 10.3969 | 151.21 | 128.77 |
-| concurrent_current | 60 | 53 | 7 | 11.7% | 197.501 | 9.9669 | 58.550 | 1.1851 | 2.0793 | 131.05 | 120.30 |
+| Profile | Req Total | Reject 429 | Done | Done % | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K*entry/sec) | Expect_Scanned Size (entries) | Latency Avg (s) | Latency P95 (s) | CPU_avg (%) | CPU_p95 (%) | RSS peak (MB) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline_single | 60 | 55 | 5 | 8.3% | 103.767 | 6.8114 | 61.195 | 416825 | 1.5421 | 2.7395 | 101.62 | 242.42 | 49.05 |
+| concurrent_2 | 60 | 54 | 6 | 10.0% | 241.093 | 8.8723 | 56.377 | 500190 | 0.8173 | 1.4177 | 95.08 | 290.91 | 101.79 |
+| concurrent_3 | 60 | 53 | 7 | 11.7% | 230.880 | 10.0458 | 58.089 | 583555 | 0.9847 | 1.7300 | 109.97 | 350.00 | 113.01 |
+| concurrent_4 | 60 | 52 | 8 | 13.3% | 70.732 | 16.4004 | 40.665 | 666920 | 2.6653 | 6.7759 | 139.09 | 436.36 | 127.49 |
+| concurrent_5 | 60 | 51 | 9 | 15.0% | 43.091 | 23.6557 | 31.717 | 750285 | 3.6845 | 10.3969 | 151.21 | 470.59 | 128.77 |
+| concurrent_current | 60 | 53 | 7 | 11.7% | 197.501 | 9.9669 | 58.550 | 583555 | 1.1851 | 2.0793 | 131.05 | 450.00 | 120.30 |
 
 ---
 
@@ -408,20 +374,23 @@ Scenario goal: test effective capacity and protection behavior under sudden burs
 
 Scenario goal: test stability under sustained pressure (time-window (20s) continuous submit), including whether the system rejects excess load instead of stalling.
 
-| Profile | Req Total | Done | Reject 429 | Reject 409 | Timeout (-1) | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput (K entry/sec) | CPU avg (%) | CPU p95 (%) | RSS Peak (MB) |
-|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
-| baseline_single | 29434 | 21 | 29408 | 5 | 0 | 47.145 | 36.7992 | 47.573 | 98.18 | 235.29 | 129.15 |
-| concurrent_2 | 24210 | 19 | 24188 | 3 | 0 | 38.587 | 39.1593 | 40.449 | 112.31 | 285.18 | 132.69 |
-| concurrent_3 | 22529 | 19 | 22509 | 1 | 0 | 31.277 | 47.4985 | 33.347 | 127.66 | 300.41 | 133.73 |
-| concurrent_4 | 20780 | 18 | 20762 | 0 | 0 | 17.113 | 73.6064 | 20.386 | 129.75 | 206.88 | 133.31 |
-| concurrent_5 | 13648 | 18 | 13629 | 1 | 0 | 15.157 | 85.1367 | 17.625 | 146.29 | 242.74 | 133.37 |
-| concurrent_current | 25826 | 17 | 25806 | 3 | 0 | 21.081 | 59.0668 | 23.993 | 136.77 | 231.88 | 132.54 |
+| Profile | Req Total | Done | Reject 429 | Reject 409 | Timeout (-1) | Throughput Scan (/min) | IO Elapsed(s) | IO Throughput  (K*entry/sec) | Expect_Scanned Size (entries) | CPU_avg (%) | CPU_p95 (%) | RSS Peak (MB) |
+|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|
+| baseline_single | 29434 | 21 | 29408 | 5 | 0 | 47.145 | 36.7992 | 47.573 | 1750665 | 98.18 | 235.29 | 129.15 |
+| concurrent_2 | 24210 | 19 | 24188 | 3 | 0 | 38.587 | 39.1593 | 40.449 | 1583935 | 112.31 | 285.18 | 132.69 |
+| concurrent_3 | 22529 | 19 | 22509 | 1 | 0 | 31.277 | 47.4985 | 33.347 | 1583935 | 127.66 | 300.41 | 133.73 |
+| concurrent_4 | 20780 | 18 | 20762 | 0 | 0 | 17.113 | 73.6064 | 20.386 | 1500570 | 129.75 | 206.88 | 133.31 |
+| concurrent_5 | 13648 | 18 | 13629 | 1 | 0 | 15.157 | 85.1367 | 17.625 | 1500570 | 146.29 | 242.74 | 133.37 |
+| concurrent_current | 25826 | 17 | 25806 | 3 | 0 | 21.081 | 59.0668 | 23.993 | 1417205 | 136.77 | 231.88 | 132.54 |
 
 ---
 
 #### cancel_flow — Cancel Latency & Conflict Rate
 
-Scenario method: two-phase model. Phase 1 submits a batch of scans concurrently, then snapshots IDs still in `PENDING/RUNNING`; Phase 2 waits `cancel_delay_sec` and sends `POST /cancel` for that snapshot. This measures cancel latency and late-cancel conflict (`409`) when targets have already finished or left cancellable states before `POST /cancel`.
+Scenario method: two-phase model. 
+- Phase 1 submits a batch of scans concurrently, then snapshots IDs still in `PENDING/RUNNING`
+- Phase 2 waits `cancel_delay_sec` and sends `POST /cancel` for that snapshot. 
+- This measures cancel latency and late-cancel conflict (`409`) when targets have already finished or left cancellable states before `POST /cancel`.
 
 | Profile | Req Total | 409 | DROPPED | CANCELED | DONE | Throughput (/min) | Latency Avg (ms) | Latency P95 (ms) |
 |---|---:|---:|---:|---:|---:|---:|---:|---:|
@@ -438,20 +407,20 @@ Scenario method: two-phase model. Phase 1 submits a batch of scans concurrently,
 
 ### single_big_scan
 
-All concurrent profiles deliver 3.0x–3.6x speedup over the baseline. All symmetric profiles land within a narrow 3.0x–3.4x band, with marginal improvement from `concurrent_3` onward — suggesting scan workers begin competing for the same filesystem I/O bandwidth beyond 3 workers. 
+All concurrent profiles deliver 3.0x–3.6x speedup over the baseline. All symmetric profiles land within a narrow 3.0x–3.4x band, with marginal improvement from `concurrency = 3` onward — suggesting scan workers begin competing for the same filesystem I/O bandwidth beyond 3 workers. 
 
 ### burst_submit
 
-`Reject 429` is uniformly high (51–55/60), confirming backpressure is active across all profiles.
+`Reject 429` is uniformly high, confirming backpressure is active across all profiles.
 
-Effective capacity rises monotonically with thread count (scan `Done`: 5 → 9). IO elapsed grows in parallel, confirming write-path saturation: when more scan workers complete in parallel, DB write becomes the bottleneck.
+Effective capacity rises monotonically with thread count. IO elapsed grows in parallel, confirming write-path saturation: when more scan workers complete in parallel, DB write becomes the bottleneck.
 
 
 ### overload_queue
 
 All profiles record `Timeout(-1)=0`, confirming the server sheds load immediately via `429` without stalling client connections.
 
-Throughput decreases monotonically with concurrency. Under sustained overload the scheduler accepts a bounded number of scans in each window, but with more workers those scans generate a higher peak write load,`baseline_single`'s single worker never overloads the DB write path and therefore sustains the highest throughput.
+Throughput decreases monotonically with concurrency. Under sustained overload the scheduler accepts a bounded number of scans in each window, but with more workers those scans generate a higher peak write load, `near single-thread` baseline single worker never overloads the DB write path and therefore sustains the highest throughput.
 
 ### cancel_flow
 
@@ -459,9 +428,10 @@ Cancel latency stays consistently low, confirming the cancel control plane is in
 
 ## Conclusion
 - Parallel scan delivers 3.0x–3.6x speedup, with `current config` achieving the best single-scan result (3.593x).
-- Under burst traffic, `concurrency=2`–`concurrency=3` are the practical sweet spot: highest scan throughput and lowest latency.
-- Under sustained overload, `near single-thread` baseline outperforms all concurrent profiles in throughput because the single SQLite writer thread is the binding constraint — extra scan workers increase write contention faster than they increase completion rate.
+- Under burst traffic, `concurrency=2`~`concurrency=3` are the practical sweet spot: highest scan throughput and lowest latency.
+- Under sustained overload, near `single-thread` baseline outperforms all concurrent profiles in throughput because the single SQLite writer thread is the binding constraint — extra scan workers increase write contention faster than they increase completion rate.
 - Cancel responsiveness is fast and independent of I/O load, confirming correct separation of the cancel control plane from the write path.
+- `DB single write IO is the main bottleneck.`
 
 
 
