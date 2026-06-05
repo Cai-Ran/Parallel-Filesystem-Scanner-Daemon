@@ -41,8 +41,16 @@ jobs:
 
       - name: Generate coverage report
         run: |
-          gcovr --root . --exclude-directories build-tests
-          gcovr --root . --exclude-directories build-tests --xml-pretty --output coverage.xml
+          gcovr \
+            --root . \
+            --object-directory build-tests \
+            --gcov-ignore-errors=source_not_found \
+            --gcov-ignore-errors=no_working_dir_found \
+            --exclude 'tests/.*' \
+            --exclude 'build-tests/CMakeFiles/.*' \
+            --print-summary \
+            --xml-pretty \
+            --output coverage.xml
 
       - name: Upload coverage artifact
         uses: actions/upload-artifact@v4
